@@ -1,0 +1,13 @@
+{
+  "name": "deepread",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c green,cyan \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": ".\\.venv\\Scripts\\python.exe -m uvicorn backend.main:app --reload --port 8000",
+    "dev:frontend": "set NEXT_PUBLIC_API_BASE=http://localhost:8000 && npm --prefix frontend run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
