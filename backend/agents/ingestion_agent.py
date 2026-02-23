@@ -1,18 +1,24 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+import asyncio
+import os
+from collections.abc import Callable
 
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
 
 from backend.models.paper import ElementType, ParsedPaper
-from backend.services.gemini_client import GeminiClient
 from backend.services.pdf_parser import parse_pdf
 from backend.services.vision_service import describe_figure
 
 
-StatusEmitter = Callable[[str, str, int], None]
+INGESTION_MODEL = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    google_api_key=os.getenv("GEMINI_API_KEY"),
+    temperature=0.1,
+)
 
 
 class IngestionSummary(BaseModel):
@@ -20,33 +26,52 @@ class IngestionSummary(BaseModel):
     prerequisites: list[str] = Field(default_factory=list)
 
 
+StatusEmitter = Callable[[str], None]
+
+
 async def run_ingestion(
-    gemini: GeminiClient,
     pdf_bytes: bytes,
     title: str,
     authors: list[str],
     abstract: str,
-    emit_status: StatusEmitter,
+    emit_thinking: StatusEmitter | None = None,
 ) -> ParsedPaper:
-    emit_status("parse", "Parsing PDF elements", 20)
+    if emit_thinking:
+        emit_thinking("Extracting text blocks and structural elements from PDF...")
     parsed = parse_pdf(pdf_bytes=pdf_bytes, title=title, authors=authors, abstract=abstract)
 
-    figures = [el for el in parsed.elements if el.element_type == ElementType.FIGURE and el.image_bytes_b64]
-    total = max(len(figures), 1)
-    for i, fig in enumerate(figures, start=1):
-        emit_status("vision", f"Interpreting figure {i}/{len(figures)}", 20 + int(40 * i / total))
-        fig.figure_description = await describe_figure(gemini, fig.image_bytes_b64 or "", fig.caption)
+    figures = [item for item in parsed.elements if item.element_type == ElementType.FIGURE and item.image_bytes_b64]
+    if figures:
+        if emit_thinking:
+            emit_thinking(f"Interpreting {len(figures)} figures in parallel...")
 
-    emit_status("parse", "Extracting primary task and prerequisites", 65)
+        async def _describe(figure):
+            return await describe_figure(
+                image_b64=figure.image_bytes_b64 or "",
+                caption=figure.caption,
+            )
+
+        descriptions = await asyncio.gather(*[_describe(fig) for fig in figures])
+        for figure, description in zip(figures, descriptions):
+            figure.figure_description = description
+        if emit_thinking:
+            emit_thinking(f"All {len(figures)} figures interpreted.")
+
     parser = PydanticOutputParser(pydantic_object=IngestionSummary)
     prompt = ChatPromptTemplate.from_template(
-        "Read the full ML paper text and extract a concise implementation-oriented summary.\n"
-        "Output strictly as JSON.\n{format_instructions}\n\n"
+        "Read this paper context and identify:\n"
+        "1) the primary ML task solved,\n"
+        "2) foundational prerequisite concepts required to understand implementation.\n"
+        "Return structured JSON.\n"
+        "{format_instructions}\n\n"
         "Title: {title}\n"
         "Abstract: {abstract}\n"
-        "Full paper text:\n{full_text}"
+        "Full text:\n{full_text}"
     )
-    chain = prompt | gemini.llm | parser
+    chain = prompt | INGESTION_MODEL | parser
+
+    if emit_thinking:
+        emit_thinking("Inferring primary task and prerequisite concepts from full text...")
     try:
         summary = await chain.ainvoke(
             {
@@ -59,13 +84,7 @@ async def run_ingestion(
         parsed.primary_task = summary.primary_task
         parsed.prerequisites_raw = summary.prerequisites
     except Exception:
-        parsed.primary_task = "Paper objective extraction failed; review abstract and introduction manually."
+        parsed.primary_task = "Primary task extraction failed."
         parsed.prerequisites_raw = []
 
-    emit_status("parse", "Ingestion complete", 70)
     return parsed
-
-
-async def event_stream(events: list[dict]) -> AsyncIterator[dict]:
-    for event in events:
-        yield event
