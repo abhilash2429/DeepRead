@@ -1,19 +1,50 @@
 from __future__ import annotations
 
+import os
+
+from langchain_core.messages import HumanMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
+
 from backend.prompts.figure import FIGURE_PROMPT
-from backend.services.gemini_client import GeminiClient
 
 
-async def describe_figure(gemini: GeminiClient, image_b64: str, caption: str | None) -> str:
-    prompt = (
-        f"{FIGURE_PROMPT}\n\nCaption:\n{caption or '(none)'}\n\n"
-        "Use plain text and keep it implementation-focused."
+VISION_MODEL = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    google_api_key=os.getenv("GEMINI_API_KEY"),
+    temperature=0.1,
+)
+
+
+async def describe_figure(image_b64: str, caption: str | None) -> str:
+    message = HumanMessage(
+        content=[
+            {
+                "type": "text",
+                "text": (
+                    f"{FIGURE_PROMPT}\n\n"
+                    f"Caption:\n{caption or '(none)'}\n\n"
+                    "Return implementation-focused plain text."
+                ),
+            },
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{image_b64}"},
+            },
+        ]
     )
-    # Fallback to caption-only text generation if multimodal parsing fails.
     try:
-        response_text = await gemini.generate_multimodal_text(prompt=prompt, image_b64=image_b64)
-        return response_text or "Figure description unavailable."
-    except Exception:  # noqa: BLE001
-        return await gemini.generate_text(
-            prompt + "\n\nImage was provided but could not be processed; infer only from caption."
+        response = await VISION_MODEL.ainvoke([message])
+        return str(response.content or "").strip() or "Figure interpretation unavailable."
+    except Exception:
+        fallback = await VISION_MODEL.ainvoke(
+            [
+                HumanMessage(
+                    content=(
+                        f"{FIGURE_PROMPT}\n\n"
+                        f"Caption:\n{caption or '(none)'}\n\n"
+                        "Image could not be processed. Infer only from caption."
+                    )
+                )
+            ]
         )
+        return str(fallback.content or "").strip() or "Figure interpretation unavailable."
