@@ -1,59 +1,63 @@
 # DeepRead
 
-Conversational ML paper comprehension app with FastAPI backend and Next.js frontend.
-Backend agents are built with LangChain + LangGraph and Gemini (`gemini-flash-latest`).
+DeepRead is an ML paper comprehension system that generates a six-section implementation briefing, then supports follow-up Q&A with tool-calling agents.
 
-## Backend setup
+## Architecture
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.example .env
-uvicorn backend.main:app --reload --port 8000
-```
+- Backend: FastAPI + LangChain + LangGraph + Gemini 2.5 (`gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`)
+- Persistence: PostgreSQL via Prisma (`prisma-client-py`)
+- Auth: Google OAuth + JWT httpOnly cookie
+- Frontend: Next.js App Router + Tailwind + SSE streaming UI
 
-If you do not want LangSmith network calls in local/offline runs, set:
+## Key Flow
 
-```bash
-LANGCHAIN_TRACING_V2=false
-```
+1. User logs in (Google OAuth).
+2. User uploads PDF or submits arXiv ID.
+3. Backend runs:
+   - `ingestion_agent` (PDF parse + figure interpretation)
+   - `comprehension_agent` (full InternalRepresentation)
+   - `briefing_agent` (six sequential LangGraph sections with SSE `thinking` + `section_token`)
+4. Briefing sections are saved progressively to DB and rendered progressively in the UI.
+5. Q&A uses `qa_agent` with tool-calling and DB-backed conversation memory.
 
-## Frontend setup
+## Repo Structure
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+- `backend/agents`: ingestion/comprehension/briefing/qa/code agents + graph state definitions
+- `backend/routers`: `auth.py`, `ingest.py`, `conversation.py`
+- `backend/db`: Prisma client lifecycle and all DB query functions
+- `backend/models`: `paper.py`, `briefing.py`, `artifacts.py`
+- `backend/prompts`: comprehension, six briefing prompts, QA, code generation, figure prompts
+- `prisma/schema.prisma`: DB schema
+- `frontend/app`: hero, upload, and session pages + next-auth route
+- `frontend/components`: PDF panel/lever, thinking stream, briefing document, chat input, artifact downloads
 
-Set `NEXT_PUBLIC_API_BASE=http://localhost:8000` in frontend env if needed.
+## Local Setup
 
-## One-command run (npm)
+1. Copy env:
+   - `copy .env.example .env`
+   - Set `GEMINI_API_KEY`, `DATABASE_URL`, OAuth/JWT values in `.env`
+2. Python deps:
+   - `python -m venv .venv`
+   - `.venv\Scripts\activate`
+   - `pip install -r requirements.txt`
+3. Generate Prisma client:
+   - `prisma generate --schema prisma/schema.prisma`
+4. Node deps:
+   - `npm install`
+   - `cd frontend && npm install && cd ..`
+5. Run:
+   - `npm run dev`
 
-From project root:
+## Core Endpoints
 
-```bash
-npm install
-npm run dev
-```
-
-This starts backend + frontend in parallel.
-
-## One-command run (Windows .cmd alternative)
-
-```bat
-run-all.cmd
-```
-
-This launches backend and frontend in parallel in separate terminal windows.
-
-## Key endpoints
-
+- `GET /auth/google`
+- `GET /auth/google/callback`
+- `GET /auth/me`
 - `POST /ingest/upload`
 - `POST /ingest/arxiv`
-- `GET /ingest/{session_id}/events`
-- `POST /conversation/{session_id}/message`
-- `GET /conversation/{session_id}/state`
-- `GET /conversation/{session_id}/artifacts`
-- `POST /conversation/{session_id}/resolve-ambiguity`
+- `GET /ingest/{paper_id}/events`
+- `GET /ingest/{paper_id}/pdf`
+- `POST /conversation/{paper_id}/message`
+- `GET /conversation/{paper_id}/state`
+- `GET /conversation/{paper_id}/artifacts`
+- `POST /conversation/{paper_id}/resolve-ambiguity`
