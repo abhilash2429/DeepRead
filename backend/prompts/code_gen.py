@@ -8,5 +8,5 @@ Rules:
 - Never silently invent missing hyperparameters.
 - Prefer readability over compactness.
 - If a value is missing, leave a TODO-style placeholder and annotate with # ASSUMED or # INFERRED.
-- Return only Python code (no markdown fences).
+- Return a CodeSnippet JSON payload that matches parser instructions exactly.
 """
