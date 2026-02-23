@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
-from backend.models.conversation import InternalRepresentation
+from backend.models.briefing import InternalRepresentation
 
 
 def build_analysis_tools(internal_rep: InternalRepresentation):
@@ -11,10 +11,10 @@ def build_analysis_tools(internal_rep: InternalRepresentation):
         """Return the hyperparameter registry as a readable table-like text."""
         if not internal_rep.hyperparameter_registry:
             return "No hyperparameters extracted."
-        lines = ["Name | Value | Source | Status | Suggested Default"]
+        lines = ["Name | Value | Source | Status | Suggested Default | Reasoning"]
         for hp in internal_rep.hyperparameter_registry:
             lines.append(
-                f"{hp.name} | {hp.value or ''} | {hp.source_section} | {hp.status} | {hp.suggested_default or ''}"
+                f"{hp.name} | {hp.value or ''} | {hp.source_section} | {hp.status} | {hp.suggested_default or ''} | {hp.suggested_reasoning or ''}"
             )
         return "\n".join(lines)
 
@@ -23,7 +23,7 @@ def build_analysis_tools(internal_rep: InternalRepresentation):
         """Find implementation-impactful ambiguity hints in provided section text."""
         text = section_text.lower()
         markers = []
-        keywords = ["standard", "we follow", "details omitted", "not shown", "supplementary", "appendix"]
+        keywords = ["standard", "we follow", "details omitted", "not shown", "supplementary", "appendix", "footnote"]
         for kw in keywords:
             if kw in text:
                 markers.append(kw)
