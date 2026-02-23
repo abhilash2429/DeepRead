@@ -11,6 +11,7 @@ class CodeSnippet(BaseModel):
     provenance: ProvenanceLabel
     assumption_notes: list[str] = Field(default_factory=list)
     source_sections: list[str] = Field(default_factory=list)
+    equation_references: list[str] = Field(default_factory=list)
 
 
 class ArtifactItem(BaseModel):
