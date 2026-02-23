@@ -1,462 +1,598 @@
-# AGENTS.md — ML Paper Comprehension Agent
-### Instructions for Codex-5.3
+# DeepRead — Agent Context Document
+
+> This file provides full architectural context for AI agents working on the DeepRead codebase.
+> Read this before making any changes.
 
 ---
 
-## What You Are Building
+## 1. Project Overview
 
-A conversational web application where a user submits an ML research paper (PDF upload or arXiv link) and a Gemini-powered agent helps them fully understand and implement it. The agent does **not** run any code. It reads the paper, builds a structured internal understanding, then walks the user through architecture, implementation, hyperparameters, and ambiguities in a staged conversational workflow.
+**DeepRead** is a conversational ML-paper comprehension application. Users upload a PDF (or paste an arXiv ID/URL), and the system ingests, parses, and deeply analyzes the paper. It then guides users through a multi-stage, interactive conversation — explaining the problem, architecture, implementation details, ambiguities, and training recipe — powered by LLM agents built with LangChain, LangGraph, and Google Gemini.
 
-**The core requirement:** The agent must fill the gap between what the paper states and what a practitioner or student needs to know to implement it. When the paper says "standard layer normalization," the agent explains what layer norm is, why it's used here, and shows the implementation. When notation is undefined, the agent decodes it. When a hyperparameter is missing, the agent proposes a justified default. Everything is labeled: **paper-stated**, **inferred**, or **assumed/missing**.
+### Core Value Proposition
 
----
-
-## LLM and Agent Framework
-
-Use **Google Gemini** (free tier) as the LLM, accessed exclusively through **LangChain** — not through the raw `google-generativeai` SDK. LangChain is the agent framework for the entire backend. All LLM calls, memory, tool use, and agent orchestration go through LangChain primitives.
-
-**LLM Setup**
-- Use `langchain-google-genai` to instantiate the LLM: `ChatGoogleGenerativeAI(model="gemini-flash-latest")`.
-- `gemini-flash-latest` is the default model for all agents — 1M token context window is critical for feeding full paper text without chunking.
-- For vision tasks (figure interpretation), use the same model with image content passed as a LangChain `HumanMessage` with inline base64 image data — `gemini-flash-latest` supports multimodal inputs natively through LangChain.
-- Do not use any other LLM provider.
-
-**Agent Framework — LangChain Primitives to Use**
-- Use **LangGraph** for the multi-stage conversational workflow. Each conversation stage (Orientation, Architecture, Implementation, Ambiguity Resolution, Training Recipe) is a **LangGraph node**. Stage transitions are graph edges with conditional routing based on user intent detection.
-- Use **LangChain LCEL** (LangChain Expression Language) for all chain construction — `prompt | llm | output_parser` pipelines throughout. Do not write manual LLM call loops.
-- Use **LangChain Tools** (`@tool` decorator) for all discrete agent capabilities: `paper_section_lookup`, `equation_decoder`, `prerequisite_expander`, `code_snippet_generator`, `hyperparameter_extractor`, `ambiguity_detector`, `figure_interpreter`. The conversation agent invokes these via `create_tool_calling_agent`.
-- Use **LangChain Memory** — `ConversationSummaryBufferMemory` backed by Gemini for managing message history within a session. Do not manage message history manually anywhere.
-- Use **LangChain's `PydanticOutputParser`** for all structured outputs (InternalRepresentation, CodeSnippet, AmbiguityEntry, HyperparameterEntry). Pass the format instructions into every relevant prompt via `parser.get_format_instructions()`.
-- Use **LangChain's `ChatPromptTemplate`** with `MessagesPlaceholder` for all prompts that include conversation history.
-- Use **LangChain's document loaders and text splitters only for the background knowledge module** — the main paper text goes to Gemini in full, no splitting.
+- **Structured comprehension**: Papers are broken into an internal representation (problem, method, novelty, component graph, hyperparameters, ambiguities, prerequisites).
+- **Stage-based tutoring**: Conversation flows through `orientation → architecture → implementation → ambiguity → training` stages, with a freeform Q&A fallback.
+- **Code generation**: On-demand annotated PyTorch code snippets per component, with provenance labels (`paper-stated`, `inferred`, `assumed`, `missing`).
+- **Ambiguity resolution**: Surfaces underspecified details one at a time and lets the user lock in decisions.
+- **Downloadable artifacts**: Architecture summaries, annotated code, hyperparameter CSVs, ambiguity reports.
 
 ---
 
-## Tech Stack
+## 2. Tech Stack
 
-**Backend**
-- `FastAPI` — API server with async support
-- `pymupdf` (import as `fitz`) — PDF parsing, text extraction, figure/image cropping
-- `arxiv` Python library — fetch paper metadata and PDF URL by arXiv ID
-- `httpx` — async download of arXiv PDFs
-- `langchain` — core LangChain framework
-- `langchain-google-genai` — LangChain integration for Gemini
-- `langchain-community` — community tools and utilities
-- `langgraph` — multi-stage agent workflow as a state graph
-- `sse-starlette` — server-sent events for streaming agent responses to frontend
-- `pydantic v2` — all data models, used with LangChain's PydanticOutputParser
-- `python-multipart` — PDF file upload handling
-- `Pillow` — image processing for extracted figures before sending to vision model
+| Layer      | Technology                                                        |
+| ---------- | ----------------------------------------------------------------- |
+| Backend    | Python 3.11+, FastAPI, Uvicorn                                    |
+| LLM        | Google Gemini (`gemini-flash-latest` via `langchain-google-genai`) |
+| Agents     | LangChain (tool-calling agents), LangGraph (state graph)          |
+| PDF parse  | PyMuPDF (`fitz`), Pillow                                          |
+| arXiv      | `arxiv` library + `httpx` for fallback PDF download               |
+| Frontend   | Next.js 14 (App Router), React 18, TypeScript, TailwindCSS 3     |
+| Extras     | `react-pdf` (PDF viewer), `reactflow` (component graph), `highlight.js` (code blocks) |
+| Dev runner | `concurrently` (root `package.json`) or Windows `.cmd` scripts    |
 
-**Frontend**
-- `Next.js` with TypeScript
-- Two-panel layout: PDF viewer on the left, chat interface on the right
-- Chat streams token-by-token via SSE
-- Code blocks render with syntax highlighting and a provenance badge (`paper-stated` / `inferred` / `assumed`)
-- Hyperparameter table renders as an interactive grid with color-coded status
-- Ambiguity cards show agent question + input for user resolution
+### Environment Variables (`.env`)
+
+| Variable                | Purpose                                    |
+| ----------------------- | ------------------------------------------ |
+| `GEMINI_API_KEY`        | **Required.** Google AI API key.           |
+| `MAX_PAPER_SIZE_MB`     | Max PDF upload size (default `20`).        |
+| `SESSION_DIR`           | Directory for persisted session data.      |
+| `LANGCHAIN_TRACING_V2`  | Enable LangSmith tracing (`true`/`false`). |
+| `LANGCHAIN_API_KEY`     | LangSmith API key (optional).              |
+| `LANGCHAIN_PROJECT`     | LangSmith project name.                    |
+| `NEXT_PUBLIC_API_BASE`  | Frontend → backend URL (default `http://localhost:8000`). |
 
 ---
 
-## Project Structure
+## 3. Repository Structure
 
 ```
-/
+DeepRead/
 ├── backend/
-│   ├── main.py
-│   ├── routers/
-│   │   ├── ingest.py
-│   │   └── conversation.py
+│   ├── __init__.py
+│   ├── main.py                      # FastAPI app creation, lifespan, middleware, router mounting
 │   ├── agents/
-│   │   ├── ingestion_agent.py
-│   │   ├── comprehension_agent.py
-│   │   ├── conversation_agent.py       # LangGraph state machine lives here
-│   │   ├── code_agent.py
-│   │   └── graph.py                    # LangGraph graph definition and compilation
-│   ├── tools/
-│   │   ├── paper_tools.py              # @tool: section_lookup, equation_decoder
-│   │   ├── knowledge_tools.py          # @tool: prerequisite_expander, background_knowledge_lookup
-│   │   ├── code_tools.py               # @tool: code_snippet_generator
-│   │   └── analysis_tools.py           # @tool: hyperparameter_extractor, ambiguity_detector
-│   ├── services/
-│   │   ├── pdf_parser.py
-│   │   ├── arxiv_fetcher.py
-│   │   └── vision_service.py
+│   │   ├── __init__.py
+│   │   ├── graph.py                 # LangGraph state graph: router → stage nodes → END
+│   │   ├── comprehension_agent.py   # Builds InternalRepresentation from ParsedPaper
+│   │   ├── conversation_agent.py    # Orchestrates a single conversation turn via the graph
+│   │   ├── ingestion_agent.py       # PDF parse + vision + task extraction pipeline
+│   │   └── code_agent.py            # Generates annotated PyTorch CodeSnippets
 │   ├── models/
-│   │   ├── paper.py
-│   │   ├── conversation.py
-│   │   └── artifacts.py
+│   │   ├── __init__.py
+│   │   ├── paper.py                 # ParsedPaper, PaperElement, ElementType, ProvenanceLabel
+│   │   ├── conversation.py          # ConversationState, InternalRepresentation, Stage, etc.
+│   │   └── artifacts.py             # CodeSnippet, ArtifactItem, ArtifactManifest
+│   ├── prompts/
+│   │   ├── __init__.py
+│   │   ├── stages.py                # STAGE_PROMPTS dict (system prompts per stage)
+│   │   ├── comprehension.py         # COMPREHENSION_PROMPT (JSON schema for InternalRepresentation)
+│   │   ├── code_gen.py              # CODE_GEN_PROMPT (PyTorch code generation rules)
+│   │   └── figure.py                # FIGURE_PROMPT (vision description rules)
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   ├── ingest.py                # /ingest/* endpoints (upload, arxiv, events, pdf)
+│   │   └── conversation.py          # /conversation/* endpoints (message, state, artifacts, resolve-ambiguity)
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── gemini_client.py         # GeminiClient: LangChain wrapper for Gemini API
+│   │   ├── pdf_parser.py            # parse_pdf(): PyMuPDF-based structured PDF extraction
+│   │   ├── arxiv_fetcher.py         # arXiv metadata + PDF download with fallback strategies
+│   │   ├── artifact_builder.py      # build_artifacts(): assembles downloadable artifact manifest
+│   │   └── vision_service.py        # describe_figure(): multimodal figure analysis
+│   ├── store/
+│   │   ├── __init__.py
+│   │   └── session_store.py         # In-memory + disk-persisted session storage with TTL cleanup
 │   ├── memory/
-│   │   └── session_memory.py           # LangChain memory setup and session persistence
-│   └── prompts/
-│       ├── comprehension.py
-│       ├── stages.py
-│       ├── code_gen.py
-│       └── figure.py
+│   │   └── session_memory.py        # ConversationSummaryBufferMemory management (LangChain)
+│   └── tools/
+│       ├── __init__.py              # Re-exports all tool builder functions
+│       ├── paper_tools.py           # paper_section_lookup, equation_decoder
+│       ├── knowledge_tools.py       # prerequisite_expander, background_knowledge_lookup
+│       ├── analysis_tools.py        # hyperparameter_extractor, ambiguity_detector
+│       └── code_tools.py            # code_snippet_generator (wraps code_agent)
 ├── frontend/
 │   ├── app/
+│   │   ├── globals.css
+│   │   ├── layout.tsx               # Root layout (imports TailwindCSS, sets metadata)
+│   │   ├── page.tsx                 # Home page: arXiv input + PDF upload + progress tracking
+│   │   └── session/[id]/page.tsx    # Session page: PDF viewer + chat + graph + artifacts
 │   ├── components/
+│   │   ├── ChatPanel.tsx            # Main chat UI: stage tabs, message list, SSE streaming, code blocks
+│   │   ├── ArtifactPanel.tsx        # Dropdown to download generated artifacts
+│   │   ├── AmbiguityCard.tsx        # Displays/resolves a single ambiguity entry
+│   │   ├── CodeBlock.tsx            # Syntax-highlighted Python code with provenance badge
+│   │   ├── ComponentGraph.tsx       # ReactFlow-based component dependency graph
+│   │   └── HyperparamTable.tsx      # Hyperparameter table with status color coding
 │   ├── hooks/
-│   └── lib/
+│   │   └── useSSE.ts                # Custom hook: POST-based SSE streaming (token/stage/done/error)
+│   ├── lib/
+│   │   ├── api.ts                   # API client functions (ingest, conversation, artifacts)
+│   │   └── types.ts                 # TypeScript types mirroring backend Pydantic models
+│   ├── package.json
+│   ├── next.config.js
+│   ├── tailwind.config.ts
+│   ├── postcss.config.js
+│   └── tsconfig.json
 ├── .env.example
-└── requirements.txt
+├── .gitignore
+├── README.md
+├── requirements.txt                 # Python dependencies
+├── package.json                     # Root: concurrently runs backend + frontend
+├── run-all.cmd                      # Windows: starts both services in separate terminals
+├── run-backend.cmd
+├── run-frontend.cmd
+└── sample_test.pdf                  # Test PDF for local development
 ```
 
 ---
 
-## Backend: What Each File Must Do
+## 4. Architecture & Data Flow
 
-### `services/pdf_parser.py`
-- Open the PDF using `pymupdf`.
-- Walk every page. For each page extract: text blocks with font size metadata, image crops (for figures), and table-like structures.
-- Use font size heuristics to detect section headings — larger bold text that is short in character count.
-- Detect pseudocode blocks by looking for "Algorithm" keyword patterns or monospace font usage.
-- Detect equations by looking for equation-label patterns like `(1)`, `(2)` at line ends, or heavy use of Greek characters.
-- For each extracted figure/image, crop it as a PNG bytes object and store it alongside its caption text.
-- Return a structured `ParsedPaper` object containing: title, authors, abstract, and a flat list of typed elements (Section, Equation, Figure, Table, Pseudocode), each tagged with its section heading and page number.
-
-### `services/arxiv_fetcher.py`
-- Accept an arXiv ID (e.g., `2310.06825`) or full arXiv URL.
-- Use the `arxiv` library to fetch paper metadata: title, authors, abstract.
-- Download the PDF bytes using `httpx` from the arXiv PDF URL.
-- Return the PDF bytes and metadata — hand off to `pdf_parser.py`.
-
-### `services/vision_service.py`
-- Accept a figure image (PNG bytes) and its caption string.
-- Send both to Gemini via LangChain — construct a `HumanMessage` with two content parts: an image part (base64-encoded PNG) and a text part containing the caption and the interpretation prompt.
-- Use `ChatGoogleGenerativeAI` directly here (not a full agent chain) since this is a single-turn vision call.
-- The prompt must instruct the model to: identify all labeled components, describe connections/arrows between them, identify any dimension annotations, and state what the figure demonstrates in implementation terms. Note anything in the figure that contradicts or adds to the text description.
-- Return a plain-text description stored on the `PaperElement` as `figure_description`.
-
-### `agents/ingestion_agent.py`
-- Orchestrates the full ingestion pipeline using a **LangChain LCEL chain**: receives PDF bytes + metadata, calls `pdf_parser.py`, then calls `vision_service.py` for every Figure element.
-- After parsing, runs a Gemini chain via LCEL — `ChatPromptTemplate | ChatGoogleGenerativeAI | PydanticOutputParser` — over the full extracted text to identify the primary task being solved and the list of foundational prerequisite concepts.
-- Returns a complete `ParsedPaper` object with all figure descriptions populated.
-
-### `agents/comprehension_agent.py`
-- Runs **once** after ingestion, before any conversation starts. This is the most important agent.
-- Implemented as a **LangChain LCEL chain**: `ChatPromptTemplate | ChatGoogleGenerativeAI | PydanticOutputParser(InternalRepresentation)`.
-- Feed it the full paper text (all section elements concatenated) plus all figure descriptions — pass as a single large context string in the prompt. Do not chunk.
-- It must produce an `InternalRepresentation` object containing:
-  - `problem_statement` — one paragraph, plain English
-  - `method_summary` — 3-5 sentences, the core idea
-  - `novelty` — what this paper does differently from prior work, cited by section
-  - `component_graph` — list of architectural components with dependency relationships (e.g., TransformerBlock depends on MultiHeadAttention which depends on ScaledDotProductAttention)
-  - `hyperparameter_registry` — every hyperparameter found anywhere in the paper (including footnotes and appendices), with value if stated, source section, and status: `paper-stated` / `inferred` / `missing`
-  - `ambiguity_log` — every point where the paper is underspecified in a way that affects implementation. Each entry must include: what is ambiguous, which section it is in, what the implementation consequence is if resolved incorrectly, and the agent's best-guess resolution with reasoning
-  - `training_procedure` — synthesized from all mentions across the entire paper: optimizer, scheduler, loss function, batch size, number of steps, data augmentation, regularization, hardware
-  - `prerequisite_concepts` — foundational concepts the paper assumes, each with a plain-English explanation appended by the agent
-- The prompt (in `prompts/comprehension.py`) passes `parser.get_format_instructions()` and instructs the model to output structured JSON matching `InternalRepresentation` exactly. It must be exhaustive on hyperparameters and ambiguities.
-
-### `agents/conversation_agent.py` and `agents/graph.py`
-
-The conversational workflow is a **LangGraph state machine**. Build it as follows:
-
-**State Definition**
-Define a `PaperLensState` TypedDict for the LangGraph state containing: `session_id`, `messages` (LangChain message list), `current_stage`, `internal_rep`, `resolved_ambiguities`, `current_component_index`, `user_level` (inferred from conversation), and `pending_question`.
-
-**Graph Nodes — one per stage**
-Each stage is a node function that receives the state, calls the appropriate LangChain chain, and returns a state update:
-- `orientation_node` — introduces the paper, plain English, no code
-- `architecture_node` — walks `component_graph` top-down, decodes equations, describes figures
-- `implementation_node` — calls `code_snippet_generator` tool per component, attaches provenance
-- `ambiguity_node` — surfaces `ambiguity_log` items one at a time, awaits user resolution
-- `training_node` — synthesizes full training procedure and hyperparameter table
-- `freeqa_node` — handles off-stage questions using full paper context
-
-**Routing**
-Add a `router_node` that runs before every user message. It uses a lightweight Gemini chain to classify user intent into one of: `continue_current_stage`, `jump_to_stage(N)`, `ask_about_component`, `free_question`. This classification drives which node handles the message next. This is the LangGraph conditional edge.
-
-**Tools**
-Each node invokes tools via `create_tool_calling_agent`. Bind the following tools to the conversation agent:
-- `paper_section_lookup(section_name)` — retrieves the relevant section text from `ParsedPaper`
-- `equation_decoder(equation_id)` — returns the equation with every symbol decoded
-- `prerequisite_expander(concept_name)` — returns a 3-part explanation of the concept
-- `background_knowledge_lookup(paper_name)` — returns the built-in summary of a landmark paper
-- `code_snippet_generator(component_name)` — calls `code_agent.py`, returns `CodeSnippet`
-- `hyperparameter_extractor()` — returns the full hyperparameter registry formatted as a table
-- `ambiguity_detector(section_text)` — runs the ambiguity detection chain on a given section
-
-All tools are defined in the `tools/` directory using the `@tool` decorator.
-
-**Memory**
-Attach `ConversationSummaryBufferMemory` to the graph — backed by `ChatGoogleGenerativeAI` for summarization. Pass memory into each node via the state's `messages` field. LangGraph manages message history across turns; the memory layer compresses old turns when context gets long.
-
-**Streaming**
-Use LangGraph's `.astream_events()` for token-level streaming. Pipe events to the SSE endpoint in `routers/conversation.py`.
-
-### `agents/code_agent.py`
-- Implemented as a **LangChain LCEL chain**: `ChatPromptTemplate | ChatGoogleGenerativeAI | PydanticOutputParser(CodeSnippet)`.
-- Accepts a component name, its description, relevant paper sections, relevant equations, and any user-resolved ambiguities.
-- Generates a PyTorch implementation snippet.
-- Every line corresponding to a paper equation must have an inline comment: `# Eq. (N)`.
-- Every assumption the agent made must be labeled: `# ASSUMED: <reason>`.
-- Every inferred detail must be labeled: `# INFERRED: <reason>`.
-- Never silently invent values for missing hyperparameters — always flag them.
-- Prefer readable code over compact code. This is for learning, not production.
-- Returns a `CodeSnippet` Pydantic object with: code string, provenance label, list of assumption notes, and source section references.
-
-### `routers/ingest.py`
-- `POST /ingest/upload` — accepts PDF file upload, runs ingestion + comprehension pipeline, returns `session_id`.
-- `POST /ingest/arxiv` — accepts arXiv ID or URL, runs same pipeline, returns `session_id`.
-- Both endpoints store `ParsedPaper` and `InternalRepresentation` in a memory dict keyed by `session_id`. No database required.
-- Return incremental status so the frontend can show a progress indicator during the comprehension pass.
-
-### `memory/session_memory.py`
-- Defines how LangChain memory is constructed and persisted per session.
-- Use `ConversationSummaryBufferMemory` with `ChatGoogleGenerativeAI` as the summarizer LLM and `max_token_limit=4000`.
-- On session creation, initialize a new memory instance and attach it to the session's LangGraph graph instance.
-- On session save, serialize the memory's `chat_memory.messages` list to JSON and write to `sessions/{session_id}/memory.json`.
-- On session reload, deserialize the messages and reconstruct the memory object. Do not re-run the comprehension pass.
-- The `InternalRepresentation` is stored separately in `sessions/{session_id}/internal_rep.json` and loaded independently of memory.
-
-### `routers/conversation.py`
-- `POST /conversation/{session_id}/message` — accepts user message, feeds it into the LangGraph graph via `.astream_events()`, streams token-level output to the client via SSE.
-- `GET /conversation/{session_id}/state` — returns current conversation state: stage, resolved ambiguities, hyperparameter table.
-- `GET /conversation/{session_id}/artifacts` — returns all generated artifacts: architecture summary, annotated code file, hyperparameter table CSV, ambiguity report.
-- `POST /conversation/{session_id}/resolve-ambiguity` — accepts ambiguity_id and user resolution, updates state, triggers the ambiguity node to move to the next item.
-
----
-
-## Frontend: What Each Component Must Do
-
-### Two-Panel Layout (`app/session/[id]/page.tsx`)
-- Left panel: PDF viewer using `react-pdf`. Supports page navigation.
-- Right panel: chat interface. Full remaining width.
-- On mobile, stack vertically with PDF viewer collapsible.
-
-### `ChatPanel.tsx`
-- Renders message history with clear visual distinction between user and agent messages.
-- Streams agent responses token by token as SSE arrives — do not wait for full response before rendering.
-- When the agent asks a clarifying question, render it in a visually distinct card above the text input.
-- Stage indicator at the top showing which of the 5 stages is active, clickable to jump between stages.
-
-### `CodeBlock.tsx`
-- Syntax-highlighted code using `highlight.js` or `prism`.
-- Provenance badge in top-right: green = `paper-stated`, yellow = `inferred`, red = `assumed`.
-- Expandable inline notes panel showing all ASSUMED and INFERRED comments as a list.
-- Copy button.
-
-### `HyperparamTable.tsx`
-- Table with columns: Name, Value, Source Section, Status.
-- Color-coded Status column: green = paper-stated, yellow = inferred, red = missing.
-- For missing rows, show the agent's suggested default in the Value column in muted/italic style.
-
-### `AmbiguityCard.tsx`
-- Shows: what is ambiguous, implementation impact, agent's resolution.
-- If unresolved: text input + confirm button for user override.
-- Resolved cards are visually collapsed with a checkmark.
-
-### `ComponentGraph.tsx`
-- Directed graph of the `component_graph` using `react-flow`.
-- Nodes are clickable — clicking a node jumps the conversation to that component's explanation in Stage 2 or 3.
-- Show dependency arrows.
-
-### `ArtifactPanel.tsx`
-- Collapsible drawer.
-- Downloadable artifacts: architecture summary `.md`, annotated code `.py`, hyperparameter table `.csv`, ambiguity report `.md`.
-- Generated on demand via `GET /conversation/{session_id}/artifacts`.
-
----
-
-## Prompts: What Each Prompt Must Accomplish
-
-### `prompts/comprehension.py`
-Instruct the model to:
-- Read the entire paper and produce all fields of `InternalRepresentation` as structured JSON.
-- Be exhaustive on hyperparameters — check every section, table, footnote, and appendix.
-- Be exhaustive on ambiguities — flag anything requiring an implementation decision not covered by the paper.
-- For each ambiguity, reason explicitly about what breaks if the wrong choice is made.
-- For prerequisite concepts, assume the reader is a student and explain each from scratch in 2-4 sentences.
-
-### `prompts/stages.py`
-One prompt per stage. Each must:
-- Include the full `InternalRepresentation` as context.
-- Define the agent persona: patient, precise, pedagogical.
-- Instruct the agent to always expand acronyms on first use.
-- Instruct the agent to decode every mathematical symbol before using it.
-- Instruct the agent to cite paper sections and equation numbers inline.
-- Instruct the agent to ask one clarifying question at a time when ambiguity arises mid-explanation.
-- Instruct the agent to explain foundational prerequisites before using them, scaled to student level.
-
-### `prompts/code_gen.py`
-Instruct the model to:
-- Generate PyTorch code only.
-- Comment every equation reference inline: `# Eq. (N)`.
-- Label every assumption: `# ASSUMED: <reason>`.
-- Label every inference: `# INFERRED: <reason>`.
-- Never invent values for missing hyperparameters silently.
-- Prefer readable code over compact code.
-
-### `prompts/figure.py`
-Instruct the vision model to:
-- Identify every labeled component in the figure.
-- Describe data flow direction where arrows are present.
-- Identify any dimension annotations.
-- State what the figure demonstrates in implementation terms.
-- Note anything in the figure that contradicts or adds to the text description.
-
----
-
-## Data Flow
+### 4.1 Ingestion Pipeline
 
 ```
-User submits PDF or arXiv ID
-        ↓
-arxiv_fetcher.py (if arXiv) → PDF bytes
-        ↓
-pdf_parser.py → ParsedPaper (typed elements)
-        ↓
-vision_service.py → populates figure_description on each Figure element
-        ↓
-ingestion_agent.py → complete ParsedPaper stored by session_id
-        ↓
-comprehension_agent.py → InternalRepresentation stored by session_id
-        ↓
-Frontend receives session_id, loads session page
-        ↓
-conversation_agent.py handles all subsequent user messages
-        ↓
-code_agent.py called per component during Stage 3
-        ↓
-artifact_builder.py assembles final downloadable outputs on request
+User uploads PDF / enters arXiv ID
+        │
+        ▼
+  ┌─────────────────────────────────┐
+  │  Router: /ingest/upload or      │
+  │          /ingest/arxiv           │
+  │  Creates session, starts async  │
+  │  pipeline, returns session_id   │
+  └────────────┬────────────────────┘
+               │
+               ▼
+  ┌─────────────────────────────────┐
+  │  run_ingestion()                │
+  │  1. parse_pdf() → ParsedPaper   │
+  │  2. describe_figure() per image │  ← Gemini multimodal
+  │  3. Extract primary_task +      │  ← Gemini text
+  │     prerequisites               │
+  └────────────┬────────────────────┘
+               │
+               ▼
+  ┌─────────────────────────────────┐
+  │  run_comprehension()            │
+  │  Produces InternalRepresentation│  ← Gemini (structured JSON)
+  │  (problem, method, novelty,     │
+  │   component_graph, hyperparams, │
+  │   ambiguity_log, training,      │
+  │   prerequisites)                │
+  └────────────┬────────────────────┘
+               │
+               ▼
+  ┌─────────────────────────────────┐
+  │  ConversationState initialized  │
+  │  Session persisted to store     │
+  │  SSE "done" event sent          │
+  │  Frontend redirects to          │
+  │  /session/{session_id}          │
+  └─────────────────────────────────┘
+```
+
+**Status streaming**: The ingestion pipeline emits SSE events (`status`, `done`, `error`) via an `asyncio.Queue`. The frontend listens on `GET /ingest/{session_id}/events`.
+
+### 4.2 Conversation Flow (LangGraph)
+
+```
+User message arrives at POST /conversation/{session_id}/message
+        │
+        ▼
+  ┌─────────────────────────────────┐
+  │  conversation_agent.run_turn()  │
+  │  Loads memory, calls graph      │
+  └────────────┬────────────────────┘
+               │
+               ▼
+  ┌─────────────────────────────────┐
+  │  LangGraph: DeepReadState       │
+  │                                 │
+  │  Entry: router_node             │
+  │    └→ _classify_route()         │  ← Gemini classifies intent
+  │       Returns: orientation |    │
+  │       architecture |            │
+  │       implementation |          │
+  │       ambiguity | training |    │
+  │       freeqa                    │
+  │                                 │
+  │  Conditional edge → stage node  │
+  │    └→ run_stage_node()          │
+  │       • Builds tool set         │
+  │       • Creates AgentExecutor   │  ← LangChain tool-calling agent
+  │       • Invokes with chat       │
+  │         history + user message  │
+  │       • If implementation:      │
+  │         generates CodeSnippet   │
+  │       • If ambiguity:           │
+  │         surfaces next question  │
+  │                                 │
+  │  Each stage node → END          │
+  └────────────┬────────────────────┘
+               │
+               ▼
+  Response streamed to frontend as SSE tokens
+  (event types: progress, stage, clarifying, token, done, error)
+```
+
+### 4.3 Tool System
+
+The LangGraph agent has access to these tools within each conversation turn:
+
+| Tool                        | Module                  | Purpose                                                    |
+| --------------------------- | ----------------------- | ---------------------------------------------------------- |
+| `paper_section_lookup`      | `tools/paper_tools.py`  | Search parsed paper sections by heading or content keyword  |
+| `equation_decoder`          | `tools/paper_tools.py`  | Retrieve equation text by label (e.g., `(1)`)              |
+| `prerequisite_expander`     | `tools/knowledge_tools.py` | Explain a prerequisite concept from the IR                |
+| `background_knowledge_lookup` | `tools/knowledge_tools.py` | Built-in summaries of landmark papers (Transformer, ResNet, etc.) |
+| `hyperparameter_extractor`  | `tools/analysis_tools.py` | Return the full hyperparameter registry as text            |
+| `ambiguity_detector`        | `tools/analysis_tools.py` | Scan section text for ambiguity markers                    |
+| `code_snippet_generator`    | `tools/code_tools.py`   | Generate annotated PyTorch code for a named component      |
+
+---
+
+## 5. Key Data Models
+
+### 5.1 `ParsedPaper` (`backend/models/paper.py`)
+
+The structured representation of an ingested PDF:
+
+- `title`, `authors`, `abstract`, `full_text`
+- `elements: list[PaperElement]` — sections, equations, figures, tables, pseudocode
+- `primary_task`, `prerequisites_raw`
+
+Each `PaperElement` has: `id`, `element_type` (enum), `section_heading`, `page_number`, `content`, `caption`, `equation_label`, `image_bytes_b64`, `figure_description`.
+
+### 5.2 `InternalRepresentation` (`backend/models/conversation.py`)
+
+The LLM-generated deep analysis of the paper:
+
+- `problem_statement`, `method_summary`, `novelty`
+- `component_graph: list[DependencyEdge]` — parent/child component relationships
+- `hyperparameter_registry: list[HyperparameterEntry]` — name, value, source, status, suggested default
+- `ambiguity_log: list[AmbiguityEntry]` — ambiguities with impact, best guess, resolution status
+- `training_procedure` — free-text training recipe
+- `prerequisite_concepts: list[ConceptExplanation]` — concept + explanation pairs
+
+### 5.3 `ConversationState` (`backend/models/conversation.py`)
+
+Per-session state tracking:
+
+- `session_id`, `current_stage` (Stage enum)
+- `message_history: list[ChatMessage]`
+- `resolved_ambiguities: dict[str, str]`
+- `internal_representation: InternalRepresentation`
+- `user_level` (`"student"` or `"practitioner"`, auto-detected from vocabulary)
+- `pending_question`, `last_component_focus`, `current_component_index`, `metadata`
+
+### 5.4 `Stage` Enum
+
+```python
+class Stage(str, Enum):
+    ORIENTATION = "orientation"
+    ARCHITECTURE = "architecture"
+    IMPLEMENTATION = "implementation"
+    AMBIGUITY = "ambiguity"
+    TRAINING = "training"
+```
+
+Note: `"freeqa"` is a valid route key but not a Stage enum member; the graph handles it as a node.
+
+### 5.5 `CodeSnippet` (`backend/models/artifacts.py`)
+
+- `component_name`, `code`, `provenance` (ProvenanceLabel), `assumption_notes`, `source_sections`
+
+### 5.6 `ProvenanceLabel` (`backend/models/paper.py`)
+
+```python
+ProvenanceLabel = Literal["paper-stated", "inferred", "assumed", "missing"]
+```
+
+Used throughout the system to track information provenance.
+
+---
+
+## 6. API Endpoints
+
+### Ingestion
+
+| Method | Path                           | Description                                      |
+| ------ | ------------------------------ | ------------------------------------------------ |
+| POST   | `/ingest/upload`               | Upload a PDF file. Returns `session_id` + SSE URL |
+| POST   | `/ingest/arxiv`                | Ingest from arXiv ref. Returns `session_id` + SSE URL |
+| GET    | `/ingest/{session_id}/events`  | SSE stream of ingestion progress events          |
+| GET    | `/ingest/{session_id}/pdf`     | Retrieve the stored PDF bytes for rendering      |
+
+### Conversation
+
+| Method | Path                                          | Description                                    |
+| ------ | --------------------------------------------- | ---------------------------------------------- |
+| POST   | `/conversation/{session_id}/message`          | Send a message; response streamed as SSE       |
+| GET    | `/conversation/{session_id}/state`            | Get full conversation state JSON               |
+| GET    | `/conversation/{session_id}/artifacts`        | Get downloadable artifact manifest             |
+| POST   | `/conversation/{session_id}/resolve-ambiguity`| Resolve a specific ambiguity by ID             |
+
+### Health
+
+| Method | Path      | Description       |
+| ------ | --------- | ----------------- |
+| GET    | `/health` | Returns `{"status": "ok"}` |
+
+### SSE Event Types (Conversation)
+
+| Event        | Payload                             | Description                             |
+| ------------ | ----------------------------------- | --------------------------------------- |
+| `progress`   | `{ message: string }`              | Thinking/processing indicator           |
+| `stage`      | `{ current_stage, reason }`        | Stage transition notification           |
+| `clarifying` | `{ question: string }`             | Ambiguity question for user             |
+| `token`      | `{ text: string }`                 | Streamed response token                 |
+| `done`       | `{ message_id: number }`           | Response complete                       |
+| `error`      | `{ message: string }`              | Error during processing                 |
+
+---
+
+## 7. Session & Memory System
+
+### SessionStore (`backend/store/session_store.py`)
+
+- **Dual-layer storage**: In-memory `dict` + disk persistence (JSON/binary files per session).
+- **TTL cleanup**: Background task cleans up sessions older than 2 hours (configurable).
+- **Serialization**: Pydantic models (`ParsedPaper`, `ConversationState`, `InternalRepresentation`, `CodeSnippet` lists) are serialized with type metadata wrappers. Binary data (PDF bytes) stored as `.bin` files.
+- **Disk path**: `{SESSION_DIR}/{session_id}/{key}.json` or `.bin`.
+
+### SessionMemoryManager (`backend/memory/session_memory.py`)
+
+- Uses LangChain's `ConversationSummaryBufferMemory` (max 4000 tokens).
+- Persists message history as JSON at `{SESSION_DIR}/{session_id}/memory.json`.
+- Falls back across LangChain import paths (`langchain.memory` → `langchain_classic.memory`).
+
+---
+
+## 8. Frontend Architecture
+
+### Pages
+
+- **`/` (Home)**: Upload PDF or enter arXiv reference. Shows progress bar and live event log during ingestion. On success, redirects to session page.
+- **`/session/[id]`**: Three-panel layout:
+  - **Left**: Resizable PDF viewer (`react-pdf`).
+  - **Right top**: Header bar with stage badge, user level, component graph toggle, artifact panel.
+  - **Right main**: `ChatPanel` — stage tabs, message history, streaming responses, code blocks, hyperparameter table (training stage), ambiguity cards (ambiguity stage).
+
+### Key Components
+
+| Component          | File                            | Purpose                                                   |
+| ------------------ | ------------------------------- | --------------------------------------------------------- |
+| `ChatPanel`        | `components/ChatPanel.tsx`      | Full chat interface: send messages, stream SSE responses, render text/code segments, show stage-specific panels |
+| `ArtifactPanel`    | `components/ArtifactPanel.tsx`  | Dropdown that fetches and offers artifact downloads        |
+| `AmbiguityCard`    | `components/AmbiguityCard.tsx`  | Renders a single ambiguity with resolve input              |
+| `CodeBlock`        | `components/CodeBlock.tsx`      | Syntax-highlighted code with provenance badge, copy button, assumption notes toggle |
+| `ComponentGraph`   | `components/ComponentGraph.tsx` | ReactFlow graph of component dependencies; clicking a node triggers architecture explanation |
+| `HyperparamTable`  | `components/HyperparamTable.tsx`| Rendered table with color-coded provenance statuses        |
+
+### Custom Hook
+
+- **`useSSE`** (`hooks/useSSE.ts`): Performs a `POST` fetch with `Accept: text/event-stream`, manually parses SSE frames from the response body stream. Handles `token`, `stage`, `progress`, `clarifying`, `done`, `error` events. Exposes `connected` state and `streamPost` function.
+
+### Frontend ↔ Backend Communication
+
+- All API calls go through `lib/api.ts` which uses `NEXT_PUBLIC_API_BASE` (defaults to `http://localhost:8000`).
+- Ingestion progress uses native `EventSource` (GET-based SSE).
+- Conversation messages use a custom POST-based SSE pattern via `useSSE` hook (since `EventSource` doesn't support POST).
+
+---
+
+## 9. How to Run
+
+### Prerequisites
+
+- Python 3.11+ with a virtual environment
+- Node.js 18+
+- A valid `GEMINI_API_KEY`
+
+### Quick Start (both services)
+
+```bash
+# From project root
+cp .env.example .env         # Fill in GEMINI_API_KEY
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+pip install -r requirements.txt
+npm install                   # Root concurrently
+cd frontend && npm install && cd ..
+npm run dev                   # Starts backend (port 8000) + frontend (port 3000)
+```
+
+### Backend Only
+
+```bash
+uvicorn backend.main:app --reload --port 8000
+```
+
+### Frontend Only
+
+```bash
+cd frontend
+npm run dev
+```
+
+### Windows `.cmd` Alternative
+
+```
+run-all.cmd       # Opens two terminal windows
 ```
 
 ---
 
-## Environment Variables (`.env.example`)
+## 10. Coding Conventions & Patterns
 
-```
-GEMINI_API_KEY=your_gemini_api_key_here
-MAX_PAPER_SIZE_MB=20
-SESSION_DIR=sessions
+### Python Backend
 
-# Optional: LangSmith tracing for debugging agent runs
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=your_langsmith_api_key_here
-LANGCHAIN_PROJECT=paperlens
-```
+1. **All modules use `from __future__ import annotations`** for PEP 604 type hints.
+2. **Pydantic v2** models throughout (`BaseModel`, `model_dump()`, `model_validate()`).
+3. **Async-first**: All IO and LLM calls are `async`. FastAPI routes are async.
+4. **Fallback pattern**: Every LLM call has a `try/except` with a fallback strategy (simpler prompt, keyword matching, etc.). This is critical — never remove fallback blocks.
+5. **No database**: State is entirely in-memory + filesystem. No SQL, no Redis.
+6. **Type annotations**: All function signatures are fully typed.
+7. **Import style**: Absolute imports from `backend.*` namespace.
+8. **Tool definitions**: Use `@tool("tool_name")` decorator from `langchain_core.tools`. Tools are factory-built (closures binding `parsed_paper` or `internal_rep`).
 
-Enable LangSmith tracing in development. It gives full visibility into every LangGraph node execution, every tool call, and every LLM call — essential for debugging the multi-stage agent flow. Do not require it for production.
+### TypeScript Frontend
 
----
-
-## Non-Negotiable Implementation Rules
-
-1. **Never hallucinate paper content.** If the paper does not state something, label it `assumed` or `missing`. This is the tool's core integrity guarantee.
-
-2. **The comprehension pass runs once and is cached.** Store the `InternalRepresentation` to disk after the first run. On all subsequent conversation turns and session reloads, load it from disk. Never re-run it.
-
-3. **Feed the full paper text to Gemini.** Do not chunk or summarize the paper before the comprehension pass. `gemini-flash-latest`'s 1M token window exists for this exact use case. Summarization loses footnotes, appendix hyperparameters, and caption details.
-
-4. **Stage flow is a default, not a gate.** The LangGraph router must detect when a user wants to jump stages and route accordingly. The stage system guides; it does not block.
-
-5. **The ambiguity log is the primary differentiator.** Every paper has underspecified points. Surface all of them. A tool that hides ambiguities to produce clean output creates false confidence in a potentially wrong implementation.
-
-6. **Prerequisite expansion is mandatory.** When any concept from `prerequisite_concepts` is first encountered, the `prerequisite_expander` tool must be called and its output included in the response before continuing.
-
-7. **Gemini free tier rate limits.** The comprehension pass is one large call. Conversation turns are smaller. Do not make redundant LLM calls — check if a tool result is already in session state before calling again. Batch figure interpretation where possible.
-
-8. **All LLM calls go through LangChain.** No direct `google-generativeai` SDK calls anywhere in the codebase. This ensures all calls are observable via LangSmith and the memory layer stays consistent.
+1. **Next.js App Router** with `"use client"` directives on all interactive components.
+2. **TailwindCSS** for styling (v3, configured in `tailwind.config.ts`).
+3. **Types mirror backend**: `lib/types.ts` mirrors Pydantic models. Keep them in sync.
+4. **No state management library**: React `useState` + prop drilling.
+5. **SSE handling**: Ingestion uses native `EventSource`; conversation uses custom POST-based stream parsing in `useSSE`.
+6. **Custom events**: `deepread-component-focus` dispatched from `ComponentGraph` → caught by `ChatPanel` to trigger architecture stage explanations.
 
 ---
 
-## Project Philosophy — Translate These Into Agent Behavior
+## 11. Key Implementation Details
 
-This section defines what PaperLens must be at its core. Every architectural decision, every prompt, every UI choice must be traceable back to one of these principles. Do not treat these as soft guidelines — implement each one as a concrete system behavior.
+### PDF Parsing (`services/pdf_parser.py`)
 
----
+- Uses **PyMuPDF** (`fitz`) to extract text blocks, detect headings (by font size/boldness), equations (Greek chars, equation tokens), tables, and pseudocode.
+- Images are extracted per page, converted to PNG, base64-encoded, and stored as `PaperElement` entries.
+- Heading detection uses `_looks_like_heading()` with font size threshold (`>= max(12.0, body_size + 1.0)` or bold ratio ≥ 0.8).
+- Equation detection: numbered patterns `(N)` at end of line, Greek character count ≥ 2, or math tokens.
 
-### 1. The Agent Exists to Fill the Implementation Gap
+### LangGraph State (`agents/graph.py`)
 
-ML papers are written for reviewers, not implementers. They omit initialization schemes, skip optimizer details, assume fluency with prerequisite concepts, and bury critical details in footnotes. The agent's entire purpose is to fill that gap.
+- `DeepReadState` is a `TypedDict` (not Pydantic) — required by LangGraph.
+- The graph compiles a new instance per `run_graph_turn()` call (stateless compilation).
+- Route classification uses Gemini with a `RouteDecision` Pydantic model; falls back to keyword matching on failure.
+- `AgentExecutor` uses `create_tool_calling_agent` from `langchain_classic.agents` — note the `langchain_classic` import, not `langchain`.
 
-**In code this means:**
-- The comprehension agent must actively hunt for what is missing, not just extract what is present. The `ambiguity_log` and `hyperparameter_registry` are not optional outputs — they are the primary outputs.
-- When the agent generates a code snippet, it must ask: "What does an engineer need to know to write this correctly that the paper did not say?" and surface those answers as `ASSUMED` or `INFERRED` labels.
-- The agent should never produce output that looks more complete than the paper actually is. False completeness is worse than acknowledged incompleteness.
+### GeminiClient (`services/gemini_client.py`)
 
----
+- Wraps `ChatGoogleGenerativeAI` from `langchain-google-genai`.
+- Provides: `generate_text()`, `stream_text()`, `generate_multimodal_text()`, `generate_json()`.
+- `generate_json()` has a two-pass strategy: parse → if fail, ask Gemini to repair → parse again.
+- `extract_json_candidate()` strips markdown fences and finds JSON boundaries.
 
-### 2. Honesty Over Polish — Enforce Labeling Discipline Everywhere
+### arXiv Fetcher (`services/arxiv_fetcher.py`)
 
-The tool's credibility is entirely in its labeling. A clean-looking output that hides assumptions actively misleads the user. An output that clearly marks uncertainty empowers them.
+- Normalizes arXiv references (URLs, bare IDs, with/without version suffixes).
+- Three-tier fetching: `arxiv.Client` → abs page metadata fallback → multiple PDF URL attempts.
+- Handles `WinError 10013` (Windows firewall) with a specific user-friendly error message.
 
-**In code this means:**
-- The three provenance labels — `paper-stated`, `inferred`, `assumed` — must be present on every code snippet, every hyperparameter entry, and every architectural claim the agent makes.
-- `paper-stated` = the paper explicitly states this value or behavior, with a section/equation reference attached.
-- `inferred` = the paper implies this through context, convention, or related work — the agent must state the reasoning.
-- `assumed` = the paper is silent on this, the agent made a choice — the agent must state what it chose and why, and flag that a different choice would produce different results.
-- The frontend must make these labels visually prominent, not small footnotes. Color coding is mandatory (green / yellow / red).
-- The agent must never aggregate multiple assumed details into one unlabeled paragraph. Each assumed detail is a separate labeled item.
+### Artifact Builder (`services/artifact_builder.py`)
 
----
-
-### 3. Prerequisite Expansion Must Chain Downward
-
-When the paper uses a concept, the agent must not just define it — it must explain the chain of reasoning that makes it necessary. The difference between a definition and an explanation is the chain: what problem does this solve, what property does it provide, why does this paper use it specifically.
-
-**In code this means:**
-- The `prerequisite_concepts` list in `InternalRepresentation` must include not just top-level concepts (e.g., "multi-head attention") but their sub-dependencies (e.g., "scaled dot-product attention", "query-key-value decomposition").
-- When the conversation agent encounters a prerequisite concept, it must generate a 3-part explanation: (1) what the problem was before this existed, (2) what this concept does to solve it, (3) why this paper specifically uses it in this context.
-- The depth of explanation scales to user level. For a student, explain from first principles. For a practitioner, start from the known concept and explain only the paper-specific usage. The agent should infer user level from how they phrase questions — technical vocabulary signals higher level.
+Produces an `ArtifactManifest` with:
+- `architecture_summary.md` — problem/method/novelty
+- Per-component `.py` files
+- `annotated_code.py` — all snippets merged
+- `hyperparameters.csv` — full registry
+- `ambiguity_report.md` — all ambiguity entries
 
 ---
 
-### 4. Foundational Paper Knowledge Must Be Built In
+## 12. Common Modification Scenarios
 
-Great papers cite prior work and assume the reader has read it. PaperLens cannot require the user to go read every cited paper. The agent must have background knowledge on landmark ML papers and activate it inline.
+### Adding a New Conversation Stage
 
-**In code this means:**
-- Build a `background_knowledge` module that contains plain-English implementation summaries of landmark papers: Attention Is All You Need, ResNet, Adam, Batch Norm, Dropout, BERT, GPT-2, ViT, DDPM, and others as relevant.
-- When the comprehension agent or conversation agent detects a citation or reference to one of these papers, it must pull the relevant background knowledge and include it as context.
-- This does not mean reproducing the cited paper — it means explaining the specific concept being borrowed, enough that the user does not need to context-switch to another paper.
-- If a cited paper is not in `background_knowledge`, the agent should say so explicitly and describe what it can infer from context.
+1. Add to `Stage` enum in `backend/models/conversation.py`.
+2. Add system prompt in `backend/prompts/stages.py` → `STAGE_PROMPTS`.
+3. Add to `RouteDecision.intent` literal in `backend/agents/graph.py`.
+4. Add node + edge in `build_conversation_graph()` in `graph.py`.
+5. Add keyword fallback in `_classify_route()`.
+6. Update `Stage` type in `frontend/lib/types.ts`.
+7. Add to `stages` array in `frontend/components/ChatPanel.tsx`.
 
----
+### Adding a New Tool
 
-### 5. The Ambiguity Report Is a First-Class Artifact
+1. Create tool builder function in `backend/tools/` (use `@tool` decorator).
+2. Export from `backend/tools/__init__.py`.
+3. Call builder in `run_stage_node()` in `backend/agents/graph.py` and add to `tools` list.
 
-The ambiguity log is not a side output — it is one of the most valuable things PaperLens produces. Across many papers, these logs constitute a dataset of where ML papers systematically fail to provide enough information to reproduce their results.
+### Changing the LLM Model
 
-**In code this means:**
-- Every ambiguity entry must have a structured schema: `ambiguity_id`, `description`, `section`, `implementation_impact`, `agent_resolution`, `user_resolution`, `resolution_confidence`.
-- `implementation_impact` must be specific — not "results may vary" but "the choice of activation function here (ReLU vs GELU) affects gradient flow through sparse activations and will produce measurably different loss curves."
-- The final ambiguity report artifact (downloadable `.md`) must be formatted so it is readable as a standalone document, not just an internal log dump.
-- Design the schema so ambiguity reports from multiple papers can eventually be aggregated. Use consistent field names and categorize ambiguity types: `missing_hyperparameter`, `undefined_notation`, `underspecified_architecture`, `missing_training_detail`, `ambiguous_loss_function`.
+1. Update `model_name` in `backend/main.py` lifespan → `GeminiClient(model_name=...)`.
+2. Or set a new env var and read it in `main.py`.
 
----
+### Adding a New API Endpoint
 
-### 6. Session Persistence Is Required
+1. Add route function in the appropriate router (`backend/routers/ingest.py` or `conversation.py`).
+2. Add corresponding client function in `frontend/lib/api.ts`.
+3. Update types if needed in `frontend/lib/types.ts`.
 
-A user implementing a paper returns to it over days or weeks. Losing conversation state between sessions destroys the tool's utility for real implementation work.
+### Modifying the InternalRepresentation Schema
 
-**In code this means:**
-- Store sessions on disk, not just in memory. Use a simple JSON file store keyed by `session_id` as the first implementation — no database required initially.
-- Persist: `ParsedPaper`, `InternalRepresentation`, full `ConversationState` including message history, all resolved ambiguities, and all generated code snippets.
-- On session reload, the agent must resume from where the conversation left off — restore stage, restore resolved ambiguities, do not re-run the comprehension pass.
-- Sessions should be loadable from a session list on the landing page. Show paper title, arXiv ID if applicable, date, and current stage.
-
----
-
-### 7. Paper Comparison Mode
-
-Users frequently need to understand how a new paper relates to a prior method — what changed, what improved, and what the implementation delta is.
-
-**In code this means:**
-- Support a comparison mode where two sessions can be loaded side by side.
-- The comparison agent takes the two `InternalRepresentation` objects and produces a diff: architectural changes, changed hyperparameters, new components, removed components, and claimed improvement vs implementation change.
-- This is a stretch goal — implement it after core single-paper flow is complete and stable. But design the `InternalRepresentation` schema from the start to support diffing. Use consistent component naming conventions so two representations of related architectures can be compared programmatically.
+1. Update fields in `InternalRepresentation` in `backend/models/conversation.py`.
+2. Update `COMPREHENSION_PROMPT` in `backend/prompts/comprehension.py` to match the new JSON schema.
+3. Update `frontend/lib/types.ts` to mirror the change.
+4. Update any tools or artifact builders that reference the changed fields.
 
 ---
 
-## Definition of Done
+## 13. Known Gotchas & Edge Cases
 
-- User pastes arXiv link → loading indicator → session opens with PDF on left, agent on right.
-- Agent delivers Orientation message without any user prompting.
-- Agent walks through architecture, decodes every equation symbol, generates labeled code snippets with inline citations.
-- Every code snippet has provenance badges and ASSUMED/INFERRED labels.
-- Hyperparameter table shows green/yellow/red status for every parameter found.
-- Ambiguity cards surface every underspecified implementation decision and accept user input.
-- Free-form Q&A works at any point in the conversation.
-- Final artifacts are downloadable: code file, hyperparameter table, ambiguity report, architecture summary.
+1. **`langchain_classic` import**: The codebase uses `langchain_classic.agents` (not `langchain.agents`) for `AgentExecutor` and `create_tool_calling_agent`. This is due to API changes between LangChain versions. If upgrading LangChain, verify this import.
+
+2. **`ConversationSummaryBufferMemory` import**: `session_memory.py` tries two import paths. If both fail, the feature is disabled. Check LangChain version compatibility.
+
+3. **`freeqa` is not a `Stage`**: It's a valid `route_key` in the graph but not in the `Stage` enum. The router treats it as a node, and it shares `run_stage_node` logic with the other stages.
+
+4. **Session store does not auto-recover**: If the server restarts, in-memory session data is lost. Disk-persisted data is reloaded on first access, but active SSE connections will break.
+
+5. **No authentication**: All endpoints are open. CORS is set to `allow_origins=["*"]`.
+
+6. **PDF parsing heuristics**: Heading/equation/table detection is heuristic-based and may fail on unusual PDF layouts. The fallback is to classify everything as `Section`.
+
+7. **Gemini rate limits**: No built-in rate limiting or retry logic for Gemini API calls. Bulk ingestion may hit quota limits.
+
+8. **Browser SSE handling**: Conversation uses POST-based SSE (not native `EventSource`). The `useSSE` hook manually parses SSE frames from the fetch response body. If modifying streaming behavior, be aware of this custom implementation.
+
+9. **Image processing**: Figure images are extracted, converted to PNG via Pillow, and base64-encoded. Very large papers with many figures may cause significant memory usage during ingestion.
+
+10. **`set` type in Pydantic**: `ConversationState.prerequisites_explained` uses `set[str]` with Pydantic, which serializes to a list. Be careful with set operations after deserialization.
+
+---
+
+## 14. Testing
+
+There are currently no automated tests in the repository. To manually test:
+
+1. Start both services (`npm run dev` from root).
+2. Upload `sample_test.pdf` or use an arXiv ID (e.g., `2310.06825`).
+3. Wait for ingestion to complete (watch SSE progress).
+4. Ask questions across different stages.
+5. Check artifacts download.
+6. Resolve an ambiguity.
+
+---
+
+## 15. Dependencies Summary
+
+### Python (`requirements.txt`)
+
+| Package                | Version    | Purpose                           |
+| ---------------------- | ---------- | --------------------------------- |
+| `fastapi`              | 0.115.2    | Web framework                     |
+| `uvicorn[standard]`    | 0.30.6     | ASGI server                       |
+| `pymupdf`              | 1.24.10    | PDF parsing                       |
+| `arxiv`                | 2.1.3      | arXiv metadata API                |
+| `httpx`                | >=0.27.2   | Async HTTP client                 |
+| `langchain`            | >=0.3.0    | LLM framework                    |
+| `langchain-community`  | >=0.3.0    | Community integrations            |
+| `langchain-google-genai` | >=2.0.0  | Gemini LLM binding                |
+| `langgraph`            | >=0.2.0    | Agent state graphs                |
+| `sse-starlette`        | 2.1.3      | Server-Sent Events                |
+| `pydantic`             | 2.9.2      | Data validation                   |
+| `python-multipart`     | 0.0.12     | File upload parsing               |
+| `Pillow`               | 10.4.0     | Image processing                  |
+
+### Node.js (`frontend/package.json`)
+
+| Package        | Version  | Purpose                     |
+| -------------- | -------- | --------------------------- |
+| `next`         | 14.2.15  | React framework             |
+| `react`        | 18.3.1   | UI library                  |
+| `react-dom`    | 18.3.1   | React DOM renderer          |
+| `highlight.js` | ^11.10.0 | Code syntax highlighting    |
+| `reactflow`    | ^11.11.4 | Node graph visualization    |
+| `react-pdf`    | ^9.1.1   | PDF rendering in browser    |
+| `tailwindcss`  | ^3.4.14  | Utility CSS framework       |
+| `typescript`   | ^5.6.3   | Type checking               |
