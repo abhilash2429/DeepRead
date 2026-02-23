@@ -8,16 +8,30 @@
 venv/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # Node / Next.js
 node_modules/
 frontend/node_modules/
 frontend/.next/
+frontend/out/
+frontend/.turbo/
 frontend/tsconfig.tsbuildinfo
 
 # Runtime/session artifacts
-sessions/
 *.log
+*.db
+*.sqlite
+*.sqlite3
+prisma/dev.db
+prisma/dev.db-journal
+.npm-cache/
+frontend/.npm-cache/
+frontend/Microsoft/
 
 # OS/editor cruft
 .DS_Store
@@ -27,3 +41,4 @@ Thumbs.db
 
 # Local git config used by sandbox
 .gitconfig-local
+Deep.md 
