@@ -2,12 +2,371 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Warm, soothing gray backgrounds instead of glaring white */
+  --bg: #e4e4e7;
+  --surface: #f4f4f5;
+  --surface-2: #d4d4d8;
+  --border: #d4d4d8;
+  --border-subtle: #e4e4e7;
+
+  /* High contrast text colors */
+  --text-primary: #09090b;
+  --text-body: #27272a;
+  --text-muted: #52525b;
+  --text-faint: #71717a;
+
+  /* Mathematically Perfect Zinc Inversion Matrix for Tailwind Classes */
+  --zinc-50: #09090b;
+  --zinc-100: #18181b;
+  --zinc-200: #27272a;
+  --zinc-300: #3f3f46;
+  --zinc-400: #52525b;
+  --zinc-500: #71717a;
+  --zinc-600: #a1a1aa;
+  --zinc-700: #d4d4d8;
+  --zinc-800: #e4e4e7;
+  --zinc-900: #f4f4f5;
+  --zinc-950: #e4e4e7;
+}
+
+.dark {
+  --bg: #09090b;
+  --surface: #18181b;
+  --surface-2: #1c1c1f;
+  --border: #27272a;
+  --border-subtle: #1f1f23;
+  --text-primary: #fafafa;
+  --text-body: #a1a1aa;
+  --text-muted: #71717a;
+  --text-faint: #52525b;
+
+  --zinc-50: #fafafa;
+  --zinc-100: #f4f4f5;
+  --zinc-200: #e4e4e7;
+  --zinc-300: #d4d4d8;
+  --zinc-400: #a1a1aa;
+  --zinc-500: #71717a;
+  --zinc-600: #52525b;
+  --zinc-700: #3f3f46;
+  --zinc-800: #27272a;
+  --zinc-900: #18181b;
+  --zinc-950: #09090b;
+}
+
 html,
 body {
+  margin: 0;
   height: 100%;
+  background: var(--bg);
+  color: var(--text-body);
+  font-family: var(--font-sans), "Inter", system-ui, sans-serif;
 }
 
 * {
   box-sizing: border-box;
 }
 
+code,
+pre {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+}
+
+/* ------ Surface card ------ */
+.surface {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+/* ------ Animations ------ */
+.fade-in {
+  animation: fade-in 250ms ease forwards;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ------ Scrollbar ------ */
+.thin-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 9999px;
+}
+
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ------ Markdown Prose ------ */
+.prose-mono h1,
+.prose-mono h2,
+.prose-mono h3,
+.prose-mono h4 {
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-top: 1.6em;
+  margin-bottom: 0.6em;
+  line-height: 1.35;
+}
+
+.prose-mono h1 {
+  font-size: 1.35rem;
+}
+
+.prose-mono h2 {
+  font-size: 1.15rem;
+}
+
+.prose-mono h3 {
+  font-size: 1rem;
+}
+
+.prose-mono h4 {
+  font-size: 0.92rem;
+}
+
+.prose-mono p {
+  margin-top: 0;
+  margin-bottom: 0.85em;
+  line-height: 1.8;
+  font-size: 0.875rem;
+  color: var(--text-body);
+}
+
+.prose-mono strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.prose-mono em {
+  color: var(--text-body);
+  font-style: italic;
+}
+
+.prose-mono ul,
+.prose-mono ol {
+  padding-left: 1.2em;
+  margin-bottom: 0.85em;
+}
+
+.prose-mono li {
+  margin-bottom: 0.35em;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: var(--text-body);
+}
+
+.prose-mono li::marker {
+  color: var(--text-faint);
+}
+
+.prose-mono blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 1em;
+  margin: 1em 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.prose-mono code {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+}
+
+.prose-mono pre {
+  background: var(--zinc-950);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1em;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.prose-mono pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 0.82rem;
+  color: var(--text-body);
+}
+
+/* ------ highlight.js Theme-Aware Styles ------ */
+.hljs {
+  color: var(--text-body);
+  background: transparent;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--zinc-500);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in,
+.hljs-name,
+.hljs-tag,
+.hljs-subst {
+  color: #c678dd;
+}
+
+.hljs-string,
+.hljs-title,
+.hljs-section,
+.hljs-attribute,
+.hljs-literal,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-addition {
+  color: #98c379;
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link,
+.hljs-meta,
+.hljs-params {
+  color: #d19a66;
+}
+
+.hljs-function,
+.hljs-title.function_ {
+  color: #61afef;
+}
+
+.hljs-variable,
+.hljs-punctuation,
+.hljs-property {
+  color: #e06c75;
+}
+
+/* Light mode overrides for highlight.js */
+:root:not(.dark) .hljs-keyword,
+:root:not(.dark) .hljs-selector-tag,
+:root:not(.dark) .hljs-built_in,
+:root:not(.dark) .hljs-name,
+:root:not(.dark) .hljs-tag,
+:root:not(.dark) .hljs-subst {
+  color: #d73a49;
+}
+
+:root:not(.dark) .hljs-string,
+:root:not(.dark) .hljs-title,
+:root:not(.dark) .hljs-section,
+:root:not(.dark) .hljs-attribute,
+:root:not(.dark) .hljs-literal,
+:root:not(.dark) .hljs-template-tag,
+:root:not(.dark) .hljs-template-variable,
+:root:not(.dark) .hljs-type,
+:root:not(.dark) .hljs-addition {
+  color: #22863a;
+}
+
+:root:not(.dark) .hljs-number,
+:root:not(.dark) .hljs-symbol,
+:root:not(.dark) .hljs-bullet,
+:root:not(.dark) .hljs-link,
+:root:not(.dark) .hljs-meta,
+:root:not(.dark) .hljs-params {
+  color: #005cc5;
+}
+
+:root:not(.dark) .hljs-function,
+:root:not(.dark) .hljs-title.function_ {
+  color: #6f42c1;
+}
+
+:root:not(.dark) .hljs-variable,
+:root:not(.dark) .hljs-punctuation,
+:root:not(.dark) .hljs-property {
+  color: #e36209;
+}
+
+.prose-mono table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin: 1em 0;
+}
+
+.prose-mono th {
+  text-align: left;
+  padding: 0.5em 0.75em;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.prose-mono td {
+  padding: 0.5em 0.75em;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-body);
+}
+
+.prose-mono a {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--text-faint);
+  text-underline-offset: 2px;
+}
+
+.prose-mono a:hover {
+  text-decoration-color: var(--text-body);
+}
+
+.prose-mono hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2em 0;
+}
+
+/* ------ Status line ------ */
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
