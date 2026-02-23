@@ -1,59 +1,52 @@
 from __future__ import annotations
 
-import json
+import os
 
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_google_genai import ChatGoogleGenerativeAI
 
-from backend.models.conversation import InternalRepresentation
+from backend.models.briefing import InternalRepresentation
 from backend.models.paper import ElementType, ParsedPaper
 from backend.prompts.comprehension import COMPREHENSION_PROMPT
-from backend.services.gemini_client import GeminiClient
 
 
-async def run_comprehension(gemini: GeminiClient, parsed: ParsedPaper) -> InternalRepresentation:
-    figure_lines = [
-        f"- [p.{el.page_number}] {el.figure_description or el.caption or ''}"
-        for el in parsed.elements
-        if el.element_type == ElementType.FIGURE
-    ]
+COMPREHENSION_MODEL = ChatGoogleGenerativeAI(
+    model="gemini-2.5-pro",
+    google_api_key=os.getenv("GEMINI_API_KEY"),
+    temperature=0.1,
+)
+
+
+async def run_comprehension(parsed_paper: ParsedPaper) -> InternalRepresentation:
     parser = PydanticOutputParser(pydantic_object=InternalRepresentation)
+    figure_lines = [
+        f"- [{element.id} | p.{element.page_number}] {element.figure_description or element.caption or ''}"
+        for element in parsed_paper.elements
+        if element.element_type == ElementType.FIGURE
+    ]
     prompt = ChatPromptTemplate.from_template(
         "{base_prompt}\n\n"
         "Title: {title}\n"
         "Authors: {authors}\n"
         "Abstract: {abstract}\n"
         "Primary task hint: {primary_task}\n"
-        "Prerequisite hint list: {prereq_hint}\n\n"
-        "Figure descriptions:\n{figure_descriptions}\n\n"
+        "Prerequisite hints: {prerequisites}\n\n"
+        "Figure interpretations:\n{figure_descriptions}\n\n"
         "Full paper text:\n{full_text}\n\n"
-        "{format_instructions}"
+        "Format instructions:\n{format_instructions}"
     )
-    chain = prompt | gemini.llm | parser
-    try:
-        return await chain.ainvoke(
-            {
-                "base_prompt": COMPREHENSION_PROMPT,
-                "title": parsed.title,
-                "authors": ", ".join(parsed.authors),
-                "abstract": parsed.abstract,
-                "primary_task": parsed.primary_task or "",
-                "prereq_hint": json.dumps(parsed.prerequisites_raw),
-                "figure_descriptions": "\n".join(figure_lines) if figure_lines else "(none)",
-                "full_text": parsed.full_text,
-                "format_instructions": parser.get_format_instructions(),
-            }
-        )
-    except Exception:
-        fallback_prompt = (
-            f"{COMPREHENSION_PROMPT}\n\n"
-            f"Title: {parsed.title}\n"
-            f"Authors: {', '.join(parsed.authors)}\n"
-            f"Abstract: {parsed.abstract}\n\n"
-            "Figure descriptions:\n"
-            + ("\n".join(figure_lines) if figure_lines else "(none)")
-            + "\n\nFull paper text:\n"
-            + parsed.full_text
-        )
-        raw = await gemini.generate_json(fallback_prompt)
-        return InternalRepresentation.model_validate(raw)
+    chain = prompt | COMPREHENSION_MODEL | parser
+    return await chain.ainvoke(
+        {
+            "base_prompt": COMPREHENSION_PROMPT,
+            "title": parsed_paper.title,
+            "authors": ", ".join(parsed_paper.authors),
+            "abstract": parsed_paper.abstract,
+            "primary_task": parsed_paper.primary_task or "",
+            "prerequisites": ", ".join(parsed_paper.prerequisites_raw),
+            "figure_descriptions": "\n".join(figure_lines) if figure_lines else "(none)",
+            "full_text": parsed_paper.full_text,
+            "format_instructions": parser.get_format_instructions(),
+        }
+    )
