@@ -3,53 +3,69 @@
 import { useState } from "react";
 import { AmbiguityEntry } from "@/lib/types";
 
-type Props = {
+type Props = Readonly<{
   ambiguity: AmbiguityEntry;
   onResolve: (id: string, resolution: string) => Promise<void>;
-};
+}>;
 
 export default function AmbiguityCard({ ambiguity, onResolve }: Props) {
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
+  const [collapsed, setCollapsed] = useState(ambiguity.resolved);
 
-  if (ambiguity.resolved) {
+  if (collapsed) {
     return (
-      <div className="rounded border bg-emerald-50 p-3 text-sm">
-        <div className="font-semibold">Resolved: {ambiguity.ambiguity_id}</div>
-      </div>
+      <article className="surface px-4 py-3 text-sm text-zinc-400">
+        <span className="text-zinc-500 mr-2">Resolved:</span>
+        {ambiguity.title || ambiguity.ambiguity_id}
+      </article>
     );
   }
 
   return (
-    <div className="rounded border bg-rose-50 p-3">
-      <div className="text-sm font-semibold">{ambiguity.ambiguous_point}</div>
-      <div className="mt-2 text-xs">
-        <div>Impact: {ambiguity.implementation_consequence}</div>
-        <div className="mt-1">Agent resolution: {ambiguity.best_guess_resolution}</div>
+    <article className="surface p-4 space-y-4">
+      <header className="flex items-start justify-between gap-3">
+        <span className="rounded bg-zinc-800 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-zinc-300">
+          {ambiguity.ambiguity_type.replace(/_/g, " ")}
+        </span>
+        <span className="text-[10px] uppercase tracking-wider text-zinc-500">
+          Confidence {Math.round((ambiguity.confidence || 0) * 100)}%
+        </span>
+      </header>
+
+      <div>
+        <h4 className="text-sm font-medium text-zinc-100">{ambiguity.title || ambiguity.ambiguous_point}</h4>
+        <p className="mt-1.5 text-sm leading-relaxed text-zinc-400">{ambiguity.implementation_consequence}</p>
       </div>
-      <div className="mt-3 flex gap-2">
+
+      <div className="rounded-lg bg-zinc-900/50 p-3 text-sm border border-zinc-800/50">
+        <span className="text-zinc-500 font-medium mr-2">Agent resolution:</span>
+        <span className="text-zinc-300">{ambiguity.agent_resolution}</span>
+      </div>
+
+      <div className="flex gap-2">
         <input
-          className="w-full rounded border px-2 py-1 text-sm"
           value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="Your resolution"
+          onChange={(event) => setValue(event.target.value)}
+          placeholder="Override with your decision"
+          className="w-full rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-200 border border-zinc-800 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none transition-colors"
         />
         <button
-          className="rounded bg-slate-900 px-3 py-1 text-sm text-white disabled:opacity-50"
-          disabled={!value || saving}
+          className="rounded bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:opacity-40"
+          disabled={!value.trim() || saving}
           onClick={async () => {
             setSaving(true);
             try {
-              await onResolve(ambiguity.ambiguity_id, value);
+              await onResolve(ambiguity.ambiguity_id, value.trim());
+              setCollapsed(true);
             } finally {
               setSaving(false);
             }
           }}
         >
-          Confirm
+          {saving ? "..." : "Confirm"}
         </button>
       </div>
-    </div>
+    </article>
   );
 }
-
