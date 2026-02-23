@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import os
 from typing import Any
 
+import fitz
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -21,6 +23,7 @@ from backend.db.queries import (
     increment_paper_count,
     save_internal_rep,
     save_parsed_paper,
+    update_paper_metadata,
     update_paper_status,
 )
 from backend.routers.auth import get_current_user
@@ -28,10 +31,64 @@ from backend.services.arxiv_fetcher import fetch_arxiv_pdf_with_progress
 
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
+logger = logging.getLogger(__name__)
 
 
 class ArxivIngestRequest(BaseModel):
     arxiv_ref: str
+
+
+def _friendly_pipeline_error(exc: Exception) -> str:
+    raw = str(exc)
+    lowered = raw.lower()
+    if "api_key_invalid" in lowered or "api key not valid" in lowered:
+        return "Invalid GEMINI_API_KEY. Set a valid key in .env and restart the backend."
+    if "gemini_api_key" in lowered and ("not configured" in lowered or "missing" in lowered):
+        return "Missing GEMINI_API_KEY. Set it in .env and restart the backend."
+    if "invalid_argument" in lowered and "gemini" in lowered:
+        return "Gemini request failed due to invalid configuration. Verify GEMINI_API_KEY and model access."
+    return raw
+
+
+async def _try_reserve_ingestion_slot(request: Request) -> bool:
+    lock: asyncio.Lock = request.app.state.ingest_pending_lock
+    async with lock:
+        pending = int(request.app.state.ingest_pending)
+        limit = int(request.app.state.ingest_queue_limit)
+        if pending >= limit:
+            return False
+        request.app.state.ingest_pending = pending + 1
+        return True
+
+
+async def _release_ingestion_slot(request: Request) -> None:
+    lock: asyncio.Lock = request.app.state.ingest_pending_lock
+    async with lock:
+        pending = int(request.app.state.ingest_pending)
+        request.app.state.ingest_pending = max(0, pending - 1)
+
+
+def _validate_pdf_payload(pdf_bytes: bytes) -> None:
+    if not pdf_bytes:
+        raise ValueError("Empty PDF payload.")
+    if not pdf_bytes.lstrip().startswith(b"%PDF-"):
+        raise ValueError("Uploaded file is not a valid PDF (missing PDF signature).")
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page_count = doc.page_count
+        doc.close()
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("Uploaded file is not a parseable PDF.") from exc
+    if page_count <= 0:
+        raise ValueError("Uploaded PDF has no pages.")
+
+
+def _validate_gemini_key_preflight() -> None:
+    key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not key:
+        raise ValueError("Missing GEMINI_API_KEY. Set it in .env and restart the backend.")
+    if "your_gemini_api_key" in key.lower():
+        raise ValueError("Invalid GEMINI_API_KEY placeholder detected. Set a real key in .env and restart.")
 
 
 def _queue_event(queue: asyncio.Queue[dict[str, Any]], event: str, data: dict[str, Any]) -> None:
@@ -57,52 +114,64 @@ async def _run_pipeline(
         _queue_event(queue, "thinking", {"message": message})
 
     try:
-        if arxiv_ref:
-            _queue_event(queue, "status", {"message": "Fetching paper metadata from arXiv...", "progress": 5})
-            payload = await fetch_arxiv_pdf_with_progress(
-                arxiv_ref,
-                max_size_mb=int(os.getenv("MAX_PAPER_SIZE_MB", "20")),
-                progress_cb=lambda msg: _queue_event(queue, "thinking", {"message": msg}),
+        semaphore: asyncio.Semaphore = request.app.state.ingest_semaphore
+        async with semaphore:
+            _validate_gemini_key_preflight()
+            if arxiv_ref:
+                _queue_event(queue, "status", {"message": "Fetching paper metadata from arXiv...", "progress": 5})
+                payload = await fetch_arxiv_pdf_with_progress(
+                    arxiv_ref,
+                    max_size_mb=int(os.getenv("MAX_PAPER_SIZE_MB", "20")),
+                    progress_cb=lambda msg: _queue_event(queue, "thinking", {"message": msg}),
+                )
+                pdf_bytes = payload.pdf_bytes
+                title = payload.title
+                authors = payload.authors
+                abstract = payload.abstract
+
+            if pdf_bytes is None:
+                raise ValueError("PDF payload is required")
+            _validate_pdf_payload(pdf_bytes)
+
+            _queue_event(queue, "status", {"message": "Running ingestion pipeline...", "progress": 15})
+            parsed_paper = await run_ingestion(
+                pdf_bytes=pdf_bytes,
+                title=title or "Untitled",
+                authors=authors or [],
+                abstract=abstract or "",
+                emit_thinking=emit_thinking,
             )
-            pdf_bytes = payload.pdf_bytes
-            title = payload.title
-            authors = payload.authors
-            abstract = payload.abstract
+            parsed_paper.pdf_bytes_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+            resolved_title = (parsed_paper.title or "").strip() or (title or "Untitled")
+            resolved_authors = parsed_paper.authors or (authors or [])
+            await update_paper_metadata(
+                paper_id=paper_id,
+                title=resolved_title,
+                authors=resolved_authors,
+            )
+            await save_parsed_paper(paper_id, parsed_paper)
 
-        if pdf_bytes is None:
-            raise ValueError("PDF payload is required")
+            _queue_event(queue, "status", {"message": "Building internal representation...", "progress": 35})
+            internal_rep = await run_comprehension(parsed_paper)
+            await save_internal_rep(paper_id, internal_rep)
 
-        _queue_event(queue, "status", {"message": "Running ingestion pipeline...", "progress": 15})
-        parsed_paper = await run_ingestion(
-            pdf_bytes=pdf_bytes,
-            title=title or "Untitled",
-            authors=authors or [],
-            abstract=abstract or "",
-            emit_thinking=emit_thinking,
-        )
-        parsed_paper.pdf_bytes_b64 = base64.b64encode(pdf_bytes).decode("ascii")
-        await save_parsed_paper(paper_id, parsed_paper)
-
-        _queue_event(queue, "status", {"message": "Building internal representation...", "progress": 35})
-        internal_rep = await run_comprehension(parsed_paper)
-        await save_internal_rep(paper_id, internal_rep)
-
-        _queue_event(queue, "status", {"message": "Generating six-section briefing...", "progress": 45})
-        await run_briefing_pipeline(
-            session_id=paper_id,
-            paper_id=paper_id,
-            parsed_paper=parsed_paper,
-            internal_rep=internal_rep,
-            emit_event=emit_event,
-        )
-        await increment_paper_count(user_id)
-        _queue_event(queue, "done", {"paper_id": paper_id, "progress": 100})
+            _queue_event(queue, "status", {"message": "Generating six-section briefing...", "progress": 45})
+            await run_briefing_pipeline(
+                session_id=paper_id,
+                paper_id=paper_id,
+                parsed_paper=parsed_paper,
+                internal_rep=internal_rep,
+                emit_event=emit_event,
+            )
+            await increment_paper_count(user_id)
+            _queue_event(queue, "done", {"paper_id": paper_id, "progress": 100})
     except Exception as exc:  # noqa: BLE001
-        import traceback
-        traceback.print_exc()
+        logger.exception("Ingestion pipeline failed for paper_id=%s", paper_id)
         await update_paper_status(paper_id, "FAILED")
-        _queue_event(queue, "error", {"message": str(exc)})
+        _queue_event(queue, "error", {"message": _friendly_pipeline_error(exc)})
         _queue_event(queue, "done", {"paper_id": paper_id, "failed": True})
+    finally:
+        await _release_ingestion_slot(request)
 
 
 @router.post("/upload")
@@ -129,26 +198,38 @@ async def ingest_upload(
     max_size_mb = int(os.getenv("MAX_PAPER_SIZE_MB", "20"))
     if len(content) > max_size_mb * 1024 * 1024:
         raise HTTPException(status_code=400, detail=f"PDF exceeds MAX_PAPER_SIZE_MB={max_size_mb}")
-
-    paper = await create_paper(
-        user_id=current_user.id,
-        title=pdf.filename,
-        authors=[],
-        arxiv_id=None,
-    )
-    request.app.state.ingest_queues[paper.id] = asyncio.Queue()
-    asyncio.create_task(
-        _run_pipeline(
-            request=request,
-            paper_id=paper.id,
+    try:
+        _validate_pdf_payload(content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not await _try_reserve_ingestion_slot(request):
+        raise HTTPException(
+            status_code=429,
+            detail="Ingestion queue is full. Please retry in a moment.",
+        )
+    try:
+        paper = await create_paper(
             user_id=current_user.id,
-            pdf_bytes=content,
             title=pdf.filename,
             authors=[],
-            abstract="",
+            arxiv_id=None,
         )
-    )
-    return {"paper_id": paper.id, "status_stream_url": f"/ingest/{paper.id}/events"}
+        request.app.state.ingest_queues[paper.id] = asyncio.Queue()
+        asyncio.create_task(
+            _run_pipeline(
+                request=request,
+                paper_id=paper.id,
+                user_id=current_user.id,
+                pdf_bytes=content,
+                title=pdf.filename,
+                authors=[],
+                abstract="",
+            )
+        )
+        return {"paper_id": paper.id, "status_stream_url": f"/ingest/{paper.id}/events"}
+    except Exception:
+        await _release_ingestion_slot(request)
+        raise
 
 
 @router.post("/arxiv")
@@ -167,23 +248,31 @@ async def ingest_arxiv(
                 **details,
             },
         )
-
-    paper = await create_paper(
-        user_id=current_user.id,
-        title=f"arXiv: {payload.arxiv_ref}",
-        authors=[],
-        arxiv_id=payload.arxiv_ref,
-    )
-    request.app.state.ingest_queues[paper.id] = asyncio.Queue()
-    asyncio.create_task(
-        _run_pipeline(
-            request=request,
-            paper_id=paper.id,
-            user_id=current_user.id,
-            arxiv_ref=payload.arxiv_ref,
+    if not await _try_reserve_ingestion_slot(request):
+        raise HTTPException(
+            status_code=429,
+            detail="Ingestion queue is full. Please retry in a moment.",
         )
-    )
-    return {"paper_id": paper.id, "status_stream_url": f"/ingest/{paper.id}/events"}
+    try:
+        paper = await create_paper(
+            user_id=current_user.id,
+            title=f"arXiv: {payload.arxiv_ref}",
+            authors=[],
+            arxiv_id=payload.arxiv_ref,
+        )
+        request.app.state.ingest_queues[paper.id] = asyncio.Queue()
+        asyncio.create_task(
+            _run_pipeline(
+                request=request,
+                paper_id=paper.id,
+                user_id=current_user.id,
+                arxiv_ref=payload.arxiv_ref,
+            )
+        )
+        return {"paper_id": paper.id, "status_stream_url": f"/ingest/{paper.id}/events"}
+    except Exception:
+        await _release_ingestion_slot(request)
+        raise
 
 
 @router.get("/{paper_id}/events")
@@ -237,4 +326,3 @@ async def paper_pdf(
         raise HTTPException(status_code=500, detail="Corrupt PDF payload in storage") from exc
 
     return Response(content=pdf_bytes, media_type="application/pdf")
-

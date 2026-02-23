@@ -1,8 +1,33 @@
 import { AuthProfile, ConversationState } from "@/lib/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+function resolveApiBase(): string {
+  const configured = process.env.NEXT_PUBLIC_API_BASE?.trim();
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("NEXT_PUBLIC_API_BASE is required in production.");
+  }
+  return "http://localhost:8000";
+}
+
+export const API_BASE = resolveApiBase();
 
 type IngestResult = { paper_id: string; status_stream_url: string };
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+export function isUnauthorizedError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
+}
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (res.ok) {
@@ -23,7 +48,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
   } catch {
     // keep raw body
   }
-  throw new Error(message);
+  throw new ApiError(res.status, message);
 }
 
 export async function ingestUpload(file: File): Promise<IngestResult> {
@@ -96,4 +121,3 @@ export function pdfUrl(paperId: string): string {
 export function conversationSseUrl(paperId: string): string {
   return `${API_BASE}/conversation/${paperId}/message`;
 }
-

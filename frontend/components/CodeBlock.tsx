@@ -61,7 +61,7 @@ export default function CodeBlock({ code, provenance = "paper-stated", language 
             className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
             onClick={() => setOpen((value) => !value)}
           >
-            {open ? "− Hide analytical notes" : "+ Show analytical notes"}
+            {open ? " Hide analytical notes" : "+ Show analytical notes"}
           </button>
           {open && (
             <ul className="mt-2 space-y-1.5 border-l-2 border-zinc-700 pl-3">
@@ -77,3 +77,4 @@ export default function CodeBlock({ code, provenance = "paper-stated", language 
     </article>
   );
 }
+

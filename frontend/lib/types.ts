@@ -43,6 +43,7 @@ export type PrerequisiteEntry = {
 
 export type ConversationState = {
   paper_id: string;
+  paper_title?: string;
   status: "PROCESSING" | "COMPLETE" | "FAILED";
   sections: Record<BriefingSectionKey, boolean>;
   briefing: Record<BriefingSectionKey, string | null>;
@@ -74,4 +75,3 @@ export type AuthProfile = {
   papers_analyzed: number;
   limit: number | "unlimited";
 };
-

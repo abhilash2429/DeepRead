@@ -3,11 +3,8 @@
 import { DragEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { getAuthProfile, ingestArxiv, ingestUpload } from "@/lib/api";
+import { API_BASE, getAuthProfile, ingestArxiv, ingestUpload, isUnauthorizedError } from "@/lib/api";
 import { AuthProfile } from "@/lib/types";
-import ThemeToggle from "@/components/ThemeToggle";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
 export default function UploadPage() {
   const router = useRouter();
@@ -20,6 +17,14 @@ export default function UploadPage() {
   const [authChecked, setAuthChecked] = useState(false);
 
   const canSubmit = useMemo(() => Boolean(file || arxivRef.trim()), [file, arxivRef]);
+
+  function isValidArxivReference(input: string): boolean {
+    const value = input.trim();
+    if (!value) return false;
+    const idPattern = /^(?:arXiv:)?(?:(?:\d{4}\.\d{4,5})|(?:[a-z\-]+(?:\.[A-Z]{2})?\/\d{7}))(?:v\d+)?$/i;
+    const urlPattern = /^https?:\/\/(?:www\.)?arxiv\.org\/(?:abs|pdf)\/(?:(?:\d{4}\.\d{4,5})|(?:[a-z\-]+(?:\.[A-Z]{2})?\/\d{7}))(?:v\d+)?(?:\.pdf)?$/i;
+    return idPattern.test(value) || urlPattern.test(value);
+  }
 
   useEffect(() => {
     getAuthProfile()
@@ -43,16 +48,22 @@ export default function UploadPage() {
   async function onAnalyze() {
     if (!canSubmit || busy) return;
     if (!profile) { setError("Please sign in first."); return; }
+    if (!file && !isValidArxivReference(arxivRef)) {
+      setError("Enter a valid research paper ID or URL.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const result = file ? await ingestUpload(file) : await ingestArxiv(arxivRef.trim());
-      router.push(`/session/${result.paper_id}?stream=${encodeURIComponent(result.status_stream_url)}`);
+      sessionStorage.setItem("deepread_active_paper_id", result.paper_id);
+      router.push("/session/analyze");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to start analysis.";
-      if (msg.includes("401") || msg.includes("Authentication")) {
+      if (isUnauthorizedError(err) || msg.includes("Authentication")) {
         setError("Session expired. Please sign in again.");
         setProfile(null);
+        router.replace("/");
       } else {
         setError(msg);
       }
@@ -78,7 +89,6 @@ export default function UploadPage() {
                 </div>
               </div>
             )}
-            <ThemeToggle />
           </div>
         </div>
 

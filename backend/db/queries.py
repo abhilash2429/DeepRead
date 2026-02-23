@@ -86,6 +86,17 @@ async def update_paper_status(paper_id: str, status: str) -> Any:
     return await prisma.paper.update(where={"id": paper_id}, data={"status": status})
 
 
+async def update_paper_metadata(paper_id: str, title: str | None = None, authors: list[str] | None = None) -> Any:
+    data: dict[str, Any] = {}
+    if title is not None:
+        data["title"] = title
+    if authors is not None:
+        data["authors"] = authors
+    if not data:
+        return await get_paper_by_id(paper_id)
+    return await prisma.paper.update(where={"id": paper_id}, data=data)
+
+
 async def save_parsed_paper(paper_id: str, parsed_paper: Any) -> Any:
     return await prisma.paper.update(
         where={"id": paper_id},

@@ -6,6 +6,7 @@ import json
 import re
 from collections.abc import AsyncIterator
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -53,6 +54,64 @@ def _split_tokens(text: str) -> list[str]:
     return [token for token in re.split(r"(\s+)", text) if token]
 
 
+def _looks_like_placeholder_title(value: str) -> bool:
+    text = value.strip()
+    if not text:
+        return True
+    lowered = text.lower()
+    if lowered.startswith("arxiv:"):
+        return True
+    if "arxiv.org/abs/" in lowered or "arxiv.org/pdf/" in lowered:
+        return True
+    if re.fullmatch(r"(?:arxiv:)?\d{4}\.\d{4,5}(?:v\d+)?", lowered):
+        return True
+    if re.fullmatch(r"(?:arxiv:)?[a-z\-]+(?:\.[a-z]{2})?/\d{7}(?:v\d+)?", lowered):
+        return True
+    parsed = urlparse(text)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return True
+    return False
+
+
+def _normalize_title_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip().strip("\"'`")
+
+
+def _extract_title_from_parsed(parsed: dict[str, Any]) -> str | None:
+    full_text = str(parsed.get("full_text", "") or "")
+    for raw_line in full_text.splitlines():
+        line = _normalize_title_text(raw_line)
+        if not line:
+            continue
+        if len(line) < 12 or len(line) > 220:
+            continue
+        if _looks_like_placeholder_title(line):
+            continue
+        lowered = line.lower()
+        if lowered in {"abstract", "introduction", "contents"}:
+            continue
+        if lowered.startswith("abstract "):
+            continue
+        return line
+    return None
+
+
+def _resolve_display_title(paper: Any) -> str:
+    parsed = paper.parsed_paper or {}
+    candidates: list[str] = []
+    if isinstance(parsed, dict):
+        candidates.append(_normalize_title_text(str(parsed.get("title", "") or "")))
+    candidates.append(_normalize_title_text(str(getattr(paper, "title", "") or "")))
+    for candidate in candidates:
+        if candidate and not _looks_like_placeholder_title(candidate):
+            return candidate
+    if isinstance(parsed, dict):
+        extracted = _extract_title_from_parsed(parsed)
+        if extracted:
+            return extracted
+    return "Research Paper"
+
+
 def _status_payload(paper: Any) -> dict[str, Any]:
     briefing = paper.briefing
     internal_rep = paper.internal_rep or {}
@@ -75,6 +134,7 @@ def _status_payload(paper: Any) -> dict[str, Any]:
     }
     return {
         "paper_id": paper.id,
+        "paper_title": _resolve_display_title(paper),
         "status": paper.status,
         "sections": sections,
         "hyperparameters": list((briefing.hyperparameters if briefing else []) or []),

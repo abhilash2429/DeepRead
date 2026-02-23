@@ -67,10 +67,11 @@ export default function ArtifactDownloads({ paperId, sections }: Props) {
             className="flex w-full items-center justify-between rounded px-2 py-1.5 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
           >
             <span>{button.label}</span>
-            <span className="text-[10px] font-mono">↓</span>
+            <span className="text-[10px] font-mono">v</span>
           </button>
         ))}
       </div>
     </section>
   );
 }
+

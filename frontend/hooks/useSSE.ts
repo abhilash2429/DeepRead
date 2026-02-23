@@ -8,7 +8,7 @@ type SSEHandlers = {
   onSectionToken?: (sectionNumber: number, text: string) => void;
   onProgress?: (payload: Record<string, unknown>) => void;
   onDone?: (payload: Record<string, unknown>) => void;
-  onError?: (message: string) => void;
+  onError?: (message: string, status?: number) => void;
 };
 
 export function useSSE() {
@@ -30,7 +30,10 @@ export function useSSE() {
         signal: controller.signal,
       });
       if (!response.ok) {
-        throw new Error(await response.text());
+        const body = await response.text();
+        const error = new Error(body || `Request failed with ${response.status}`) as Error & { status?: number };
+        error.status = response.status;
+        throw error;
       }
       if (!response.body) {
         throw new Error("No SSE response body");
@@ -79,7 +82,10 @@ export function useSSE() {
         }
       }
     } catch (error) {
-      handlers.onError?.(error instanceof Error ? error.message : "SSE request failed");
+      const maybeStatus = typeof error === "object" && error !== null && "status" in error
+        ? Number((error as { status?: number }).status)
+        : undefined;
+      handlers.onError?.(error instanceof Error ? error.message : "SSE request failed", maybeStatus);
     } finally {
       setConnected(false);
     }
@@ -89,4 +95,3 @@ export function useSSE() {
 
   return { connected, streamPost };
 }
-
