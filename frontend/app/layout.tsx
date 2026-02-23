@@ -1,16 +1,26 @@
-import "./globals.css";
-import type { ReactNode } from "react";
+import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 
-export const metadata = {
+import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
+const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
+
+import { Providers } from "./Providers";
+
+export const metadata: Metadata = {
   title: "DeepRead",
-  description: "ML Paper Comprehension Agent",
+  description: "Drop a research paper. Get everything you need to implement it.",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="bg-slate-100 text-slate-900">{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${inter.variable} ${jetbrainsMono.variable}`}>
+        <Providers>
+          {children}
+        </Providers>
+      </body>
     </html>
   );
 }
-
