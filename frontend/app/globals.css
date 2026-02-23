@@ -3,34 +3,6 @@
 @tailwind utilities;
 
 :root {
-  /* Warm, soothing gray backgrounds instead of glaring white */
-  --bg: #e4e4e7;
-  --surface: #f4f4f5;
-  --surface-2: #d4d4d8;
-  --border: #d4d4d8;
-  --border-subtle: #e4e4e7;
-
-  /* High contrast text colors */
-  --text-primary: #09090b;
-  --text-body: #27272a;
-  --text-muted: #52525b;
-  --text-faint: #71717a;
-
-  /* Mathematically Perfect Zinc Inversion Matrix for Tailwind Classes */
-  --zinc-50: #09090b;
-  --zinc-100: #18181b;
-  --zinc-200: #27272a;
-  --zinc-300: #3f3f46;
-  --zinc-400: #52525b;
-  --zinc-500: #71717a;
-  --zinc-600: #a1a1aa;
-  --zinc-700: #d4d4d8;
-  --zinc-800: #e4e4e7;
-  --zinc-900: #f4f4f5;
-  --zinc-950: #e4e4e7;
-}
-
-.dark {
   --bg: #09090b;
   --surface: #18181b;
   --surface-2: #1c1c1f;
@@ -259,48 +231,6 @@ pre {
 .hljs-punctuation,
 .hljs-property {
   color: #e06c75;
-}
-
-/* Light mode overrides for highlight.js */
-:root:not(.dark) .hljs-keyword,
-:root:not(.dark) .hljs-selector-tag,
-:root:not(.dark) .hljs-built_in,
-:root:not(.dark) .hljs-name,
-:root:not(.dark) .hljs-tag,
-:root:not(.dark) .hljs-subst {
-  color: #d73a49;
-}
-
-:root:not(.dark) .hljs-string,
-:root:not(.dark) .hljs-title,
-:root:not(.dark) .hljs-section,
-:root:not(.dark) .hljs-attribute,
-:root:not(.dark) .hljs-literal,
-:root:not(.dark) .hljs-template-tag,
-:root:not(.dark) .hljs-template-variable,
-:root:not(.dark) .hljs-type,
-:root:not(.dark) .hljs-addition {
-  color: #22863a;
-}
-
-:root:not(.dark) .hljs-number,
-:root:not(.dark) .hljs-symbol,
-:root:not(.dark) .hljs-bullet,
-:root:not(.dark) .hljs-link,
-:root:not(.dark) .hljs-meta,
-:root:not(.dark) .hljs-params {
-  color: #005cc5;
-}
-
-:root:not(.dark) .hljs-function,
-:root:not(.dark) .hljs-title.function_ {
-  color: #6f42c1;
-}
-
-:root:not(.dark) .hljs-variable,
-:root:not(.dark) .hljs-punctuation,
-:root:not(.dark) .hljs-property {
-  color: #e36209;
 }
 
 .prose-mono table {

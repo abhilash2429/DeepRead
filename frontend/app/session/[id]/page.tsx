@@ -180,18 +180,18 @@ export default function SessionPage() {
       <PdfPanel paperId={paperId} open={pdfOpen} onClose={() => setPdfOpen(false)} pdfReady={state.status === "COMPLETE"} />
 
       {/* Main content */}
-      <div className={`flex flex-1 flex-col transition-all duration-300 ${pdfOpen ? "ml-[36vw]" : "ml-0"}`}>
+      <div className={`relative flex flex-1 flex-col transition-all duration-300 ${pdfOpen ? "ml-[36vw]" : "ml-0"}`}>
 
-        {/* Top bar */}
-        <header className="flex items-center justify-between border-b border-zinc-800 px-6 py-3">
+        {/* Top bar (Absolute so scroll passes under it for glass effect) */}
+        <header className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between border-b border-zinc-700/30 bg-zinc-900/50 px-6 py-3 shadow-md backdrop-blur-xl">
           <div className="flex items-center gap-4">
             <button
-              className="rounded-md border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+              className="rounded-md border border-zinc-700/50 bg-zinc-800/40 px-3 py-1.5 text-xs text-zinc-200 transition-colors hover:bg-zinc-700/60"
               onClick={() => setPdfOpen((v) => !v)}
             >
               {pdfOpen ? "Close PDF" : "PDF"}
             </button>
-            <div className="text-xs text-zinc-600">
+            <div className="rounded-full border border-zinc-700/50 bg-zinc-800/40 px-2.5 py-1 text-[11px] text-zinc-300">
               {state.status === "PROCESSING" ? "Processing" : state.status === "COMPLETE" ? "Complete" : "Failed"}
             </div>
           </div>
@@ -199,7 +199,7 @@ export default function SessionPage() {
         </header>
 
         {/* Content area: 2 columns */}
-        <div className="flex flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 pt-16">
 
           {/* Main scroll area */}
           <div ref={scrollRef} className="thin-scroll flex-1 overflow-auto px-6 pt-6">

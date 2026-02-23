@@ -18,7 +18,10 @@ export default function ChatInput({ value, disabled, busy, onChange, onSubmit }:
   }
 
   return (
-    <form className="relative overflow-hidden rounded-2xl bg-zinc-900/60 p-2 shadow-2xl shadow-black/20 backdrop-blur-xl" onSubmit={handleSubmit}>
+    <form
+      className="relative overflow-hidden rounded-2xl bg-zinc-500/10 p-2 shadow-[0_8px_32px_0_rgba(0,0,0,0.1)] backdrop-blur-3xl saturate-150"
+      onSubmit={handleSubmit}
+    >
       <div className="flex items-end gap-2">
         <textarea
           value={value}
@@ -31,12 +34,12 @@ export default function ChatInput({ value, disabled, busy, onChange, onSubmit }:
           }}
           disabled={disabled}
           placeholder="Ask a question about this paper..."
-          className="thin-scroll w-full resize-none rounded bg-transparent px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none min-h-[40px] max-h-[120px]"
+          className="thin-scroll min-h-[40px] max-h-[120px] w-full resize-none bg-transparent px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
           rows={Math.min(Math.max(value.split("\n").length, 1), 5)}
         />
         <button
           disabled={disabled || !value.trim()}
-          className="rounded bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-700 transition-colors disabled:cursor-not-allowed disabled:opacity-40 shrink-0"
+          className="shrink-0 rounded-xl bg-zinc-500/10 px-4 py-2 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-500/20 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {busy ? "..." : "Send"}
         </button>
