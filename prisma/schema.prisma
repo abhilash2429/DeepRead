@@ -1,0 +1,77 @@
+generator client {
+  provider             = "prisma-client-py"
+  interface            = "asyncio"
+  output               = "../.venv/Lib/site-packages/prisma"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  google_sub      String   @unique
+  email           String   @unique
+  name            String
+  avatar_url      String?
+  plan            Plan     @default(FREE)
+  papers_analyzed Int      @default(0)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  papers          Paper[]
+}
+
+enum Plan {
+  FREE
+  PRO
+}
+
+model Paper {
+  id          String      @id @default(cuid())
+  user_id     String
+  user        User        @relation(fields: [user_id], references: [id])
+  title       String
+  authors     String[]
+  arxiv_id    String?
+  status      PaperStatus @default(PROCESSING)
+  parsed_paper Json
+  internal_rep Json
+  created_at  DateTime    @default(now())
+  updated_at  DateTime    @updatedAt
+  briefing    Briefing?
+  qa_messages QAMessage[]
+}
+
+enum PaperStatus {
+  PROCESSING
+  COMPLETE
+  FAILED
+}
+
+model Briefing {
+  id             String   @id @default(cuid())
+  paper_id       String   @unique
+  paper          Paper    @relation(fields: [paper_id], references: [id])
+  section_1      String?
+  section_2      String?
+  section_3      String?
+  section_4      String?
+  section_5      String?
+  section_6      String?
+  hyperparameters Json?
+  ambiguities    Json?
+  code_snippets  Json?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+}
+
+model QAMessage {
+  id         String   @id @default(cuid())
+  paper_id   String
+  paper      Paper    @relation(fields: [paper_id], references: [id])
+  role       String
+  content    String
+  created_at DateTime @default(now())
+}
