@@ -6,5 +6,6 @@ Return plain text that includes:
 3) Any dimensions/shapes shown.
 4) What it means in implementation terms.
 5) Any contradiction/addition relative to caption/text.
+Keep the response concise and implementation-focused.
 """
 
