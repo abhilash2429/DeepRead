@@ -34,6 +34,7 @@ class ParsedPaper(BaseModel):
     elements: list[PaperElement] = Field(default_factory=list)
     primary_task: str | None = None
     prerequisites_raw: list[str] = Field(default_factory=list)
+    pdf_bytes_b64: str | None = None
 
 
 ProvenanceLabel = Literal["paper-stated", "inferred", "assumed", "missing"]
