@@ -4,97 +4,89 @@ import { useEffect, useRef, useState } from "react";
 
 type SSEHandlers = {
   onToken?: (text: string) => void;
-  onStage?: (stage: string) => void;
-  onProgress?: (message: string) => void;
-  onClarifying?: (question: string) => void;
-  onDone?: () => void;
-  onError?: (msg: string) => void;
+  onThinking?: (message: string) => void;
+  onSectionToken?: (sectionNumber: number, text: string) => void;
+  onProgress?: (payload: Record<string, unknown>) => void;
+  onDone?: (payload: Record<string, unknown>) => void;
+  onError?: (message: string) => void;
 };
 
 export function useSSE() {
   const [connected, setConnected] = useState(false);
-  const controllerRef = useRef<AbortController | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  async function streamPost(url: string, payload: unknown, handlers: SSEHandlers) {
-    controllerRef.current?.abort();
+  async function streamPost(url: string, payload: unknown, handlers: SSEHandlers): Promise<void> {
+    abortRef.current?.abort();
     const controller = new AbortController();
-    controllerRef.current = controller;
+    abortRef.current = controller;
     setConnected(true);
 
     try {
       const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        credentials: "include",
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
       if (!response.ok) {
         throw new Error(await response.text());
       }
-      if (!response.body) throw new Error("No stream body returned");
+      if (!response.body) {
+        throw new Error("No SSE response body");
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let buf = "";
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-        const chunks = buf.split("\n\n");
-        buf = chunks.pop() || "";
 
-        for (const chunk of chunks) {
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() || "";
+
+        for (const frame of frames) {
+          if (!frame.trim()) continue;
           let event = "message";
-          const dataParts: string[] = [];
-          for (const line of chunk.split("\n")) {
+          const dataLines: string[] = [];
+          for (const line of frame.split("\n")) {
             if (line.startsWith("event:")) event = line.slice(6).trim();
-            if (line.startsWith("data:")) dataParts.push(line.slice(5).trim());
+            if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
           }
-          const data = dataParts.join("\n");
-          if (!data) continue;
-          let parsed: Record<string, unknown> = {};
-          try {
-            parsed = JSON.parse(data);
-          } catch {
-            parsed = { text: data };
-          }
-          if (event === "token") handlers.onToken?.(String(parsed.text || ""));
-          if (event === "stage") handlers.onStage?.(String(parsed.current_stage || ""));
-          if (event === "progress") handlers.onProgress?.(String(parsed.message || "Thinking..."));
-          if (event === "clarifying") handlers.onClarifying?.(String(parsed.question || ""));
-          if (event === "error") handlers.onError?.(String(parsed.message || "stream error"));
-          if (event === "done") handlers.onDone?.();
-        }
-      }
+          const rawData = dataLines.join("\n");
+          if (!rawData) continue;
 
-      const tail = buf.trim();
-      if (tail) {
-        let event = "message";
-        const dataParts: string[] = [];
-        for (const line of tail.split("\n")) {
-          if (line.startsWith("event:")) event = line.slice(6).trim();
-          if (line.startsWith("data:")) dataParts.push(line.slice(5).trim());
-        }
-        const data = dataParts.join("\n");
-        if (data) {
+          let payloadObj: Record<string, unknown>;
           try {
-            const parsed = JSON.parse(data) as Record<string, unknown>;
-            if (event === "done") handlers.onDone?.();
-            if (event === "error") handlers.onError?.(String(parsed.message || "stream error"));
+            payloadObj = JSON.parse(rawData) as Record<string, unknown>;
           } catch {
-            // no-op
+            payloadObj = { text: rawData };
           }
+
+          if (event === "token") handlers.onToken?.(String(payloadObj.text || ""));
+          if (event === "thinking") handlers.onThinking?.(String(payloadObj.message || ""));
+          if (event === "section_token")
+            handlers.onSectionToken?.(
+              Number(payloadObj.section_number || 0),
+              String(payloadObj.text || "")
+            );
+          if (event === "progress") handlers.onProgress?.(payloadObj);
+          if (event === "done") handlers.onDone?.(payloadObj);
+          if (event === "error") handlers.onError?.(String(payloadObj.message || "Stream error"));
         }
       }
-    } catch (err) {
-      handlers.onError?.(err instanceof Error ? err.message : "stream failed");
+    } catch (error) {
+      handlers.onError?.(error instanceof Error ? error.message : "SSE request failed");
     } finally {
       setConnected(false);
     }
   }
 
-  useEffect(() => () => controllerRef.current?.abort(), []);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   return { connected, streamPost };
 }
+
