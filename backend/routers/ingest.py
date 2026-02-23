@@ -1,19 +1,31 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile
-from langchain_core.messages import AIMessage
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from backend.agents.briefing_agent import run_briefing_pipeline
 from backend.agents.comprehension_agent import run_comprehension
 from backend.agents.ingestion_agent import run_ingestion
-from backend.models.conversation import ChatMessage, ConversationState, Stage
+from backend.db.queries import (
+    check_user_limit,
+    create_paper,
+    get_paper_by_id,
+    get_user_limit_details,
+    increment_paper_count,
+    save_internal_rep,
+    save_parsed_paper,
+    update_paper_status,
+)
+from backend.routers.auth import get_current_user
 from backend.services.arxiv_fetcher import fetch_arxiv_pdf_with_progress
+
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 
@@ -28,109 +40,168 @@ def _queue_event(queue: asyncio.Queue[dict[str, Any]], event: str, data: dict[st
 
 async def _run_pipeline(
     request: Request,
-    session_id: str,
-    pdf_bytes: bytes,
-    title: str,
-    authors: list[str],
-    abstract: str,
+    paper_id: str,
+    user_id: str,
+    pdf_bytes: bytes | None = None,
+    title: str | None = None,
+    authors: list[str] | None = None,
+    abstract: str | None = None,
+    arxiv_ref: str | None = None,
 ) -> None:
-    queue = request.app.state.ingest_queues[session_id]
-    store = request.app.state.session_store
-    gemini = request.app.state.gemini
-    memory_manager = request.app.state.memory_manager
+    queue = request.app.state.ingest_queues[paper_id]
 
-    def emit_status(step: str, message: str, progress: int) -> None:
-        _queue_event(queue, "status", {"step": step, "message": message, "progress": progress})
+    async def emit_event(event: str, data: dict[str, Any]) -> None:
+        _queue_event(queue, event, data)
+
+    def emit_thinking(message: str) -> None:
+        _queue_event(queue, "thinking", {"message": message})
 
     try:
-        emit_status("start", "Ingestion started", 5)
-        await store.set(session_id, "pdf_bytes", pdf_bytes)
-        parsed = await run_ingestion(gemini, pdf_bytes, title, authors, abstract, emit_status)
-        await store.set(session_id, "parsed_paper", parsed)
+        if arxiv_ref:
+            _queue_event(queue, "status", {"message": "Fetching paper metadata from arXiv...", "progress": 5})
+            payload = await fetch_arxiv_pdf_with_progress(
+                arxiv_ref,
+                max_size_mb=int(os.getenv("MAX_PAPER_SIZE_MB", "20")),
+                progress_cb=lambda msg: _queue_event(queue, "thinking", {"message": msg}),
+            )
+            pdf_bytes = payload.pdf_bytes
+            title = payload.title
+            authors = payload.authors
+            abstract = payload.abstract
 
-        emit_status("comprehension", "Running comprehension pass", 80)
-        internal = await run_comprehension(gemini, parsed)
-        await store.set(session_id, "internal_representation", internal)
-        state = ConversationState(session_id=session_id, current_stage=Stage.ORIENTATION, internal_representation=internal)
-        orientation = (
-            "Orientation\n\n"
-            f"Problem: {internal.problem_statement}\n\n"
-            f"Method: {internal.method_summary}\n\n"
-            f"Novelty: {internal.novelty}"
+        if pdf_bytes is None:
+            raise ValueError("PDF payload is required")
+
+        _queue_event(queue, "status", {"message": "Running ingestion pipeline...", "progress": 15})
+        parsed_paper = await run_ingestion(
+            pdf_bytes=pdf_bytes,
+            title=title or "Untitled",
+            authors=authors or [],
+            abstract=abstract or "",
+            emit_thinking=emit_thinking,
         )
-        state.message_history.append(ChatMessage(role="assistant", content=orientation))
-        await store.set(session_id, "conversation_state", state)
-        await store.set(session_id, "code_snippets", [])
+        parsed_paper.pdf_bytes_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+        await save_parsed_paper(paper_id, parsed_paper)
 
-        memory = memory_manager.create_or_load(session_id, gemini.llm)
-        memory.chat_memory.messages = [AIMessage(content=orientation)]
-        memory_manager.save(session_id, memory)
+        _queue_event(queue, "status", {"message": "Building internal representation...", "progress": 35})
+        internal_rep = await run_comprehension(parsed_paper)
+        await save_internal_rep(paper_id, internal_rep)
 
-        emit_status("done", "Session ready", 100)
-        _queue_event(queue, "done", {"session_id": session_id})
+        _queue_event(queue, "status", {"message": "Generating six-section briefing...", "progress": 45})
+        await run_briefing_pipeline(
+            session_id=paper_id,
+            paper_id=paper_id,
+            parsed_paper=parsed_paper,
+            internal_rep=internal_rep,
+            emit_event=emit_event,
+        )
+        await increment_paper_count(user_id)
+        _queue_event(queue, "done", {"paper_id": paper_id, "progress": 100})
     except Exception as exc:  # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        await update_paper_status(paper_id, "FAILED")
         _queue_event(queue, "error", {"message": str(exc)})
-        _queue_event(queue, "done", {"session_id": session_id, "failed": True})
+        _queue_event(queue, "done", {"paper_id": paper_id, "failed": True})
 
 
 @router.post("/upload")
-async def ingest_upload(request: Request, pdf: UploadFile = File(...)) -> dict[str, str]:
+async def ingest_upload(
+    request: Request,
+    pdf: UploadFile = File(...),
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, str]:
+    if not await check_user_limit(current_user.id):
+        details = await get_user_limit_details(current_user.id)
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "Plan limit reached",
+                "message": "Free plan allows 3 lifetime paper analyses. Upgrade to continue.",
+                **details,
+            },
+        )
+
     if not pdf.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+        raise HTTPException(status_code=400, detail="Only PDF uploads are supported")
+
     content = await pdf.read()
     max_size_mb = int(os.getenv("MAX_PAPER_SIZE_MB", "20"))
     if len(content) > max_size_mb * 1024 * 1024:
         raise HTTPException(status_code=400, detail=f"PDF exceeds MAX_PAPER_SIZE_MB={max_size_mb}")
 
-    session_id = await request.app.state.session_store.create()
-    request.app.state.ingest_queues[session_id] = asyncio.Queue()
-    asyncio.create_task(_run_pipeline(request, session_id, content, pdf.filename, [], ""))
-    return {"session_id": session_id, "status_stream_url": f"/ingest/{session_id}/events"}
+    paper = await create_paper(
+        user_id=current_user.id,
+        title=pdf.filename,
+        authors=[],
+        arxiv_id=None,
+    )
+    request.app.state.ingest_queues[paper.id] = asyncio.Queue()
+    asyncio.create_task(
+        _run_pipeline(
+            request=request,
+            paper_id=paper.id,
+            user_id=current_user.id,
+            pdf_bytes=content,
+            title=pdf.filename,
+            authors=[],
+            abstract="",
+        )
+    )
+    return {"paper_id": paper.id, "status_stream_url": f"/ingest/{paper.id}/events"}
 
 
 @router.post("/arxiv")
-async def ingest_arxiv(request: Request, payload: ArxivIngestRequest) -> dict[str, str]:
-    session_id = await request.app.state.session_store.create()
-    request.app.state.ingest_queues[session_id] = asyncio.Queue()
+async def ingest_arxiv(
+    request: Request,
+    payload: ArxivIngestRequest,
+    current_user: Any = Depends(get_current_user),
+) -> dict[str, str]:
+    if not await check_user_limit(current_user.id):
+        details = await get_user_limit_details(current_user.id)
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "Plan limit reached",
+                "message": "Free plan allows 3 lifetime paper analyses. Upgrade to continue.",
+                **details,
+            },
+        )
 
-    async def arxiv_pipeline() -> None:
-        queue = request.app.state.ingest_queues[session_id]
-        _queue_event(queue, "status", {"step": "download", "message": "Fetching from arXiv", "progress": 10})
-        try:
-            max_size_mb = int(os.getenv("MAX_PAPER_SIZE_MB", "20"))
-            paper = await fetch_arxiv_pdf_with_progress(
-                payload.arxiv_ref,
-                max_size_mb=max_size_mb,
-                progress_cb=lambda msg: _queue_event(
-                    queue, "status", {"step": "download", "message": msg, "progress": 15}
-                ),
-            )
-            _queue_event(
-                queue,
-                "status",
-                {"step": "download", "message": "arXiv fetch complete. Starting ingestion", "progress": 18},
-            )
-            await _run_pipeline(
-                request=request,
-                session_id=session_id,
-                pdf_bytes=paper.pdf_bytes,
-                title=paper.title,
-                authors=paper.authors,
-                abstract=paper.abstract,
-            )
-        except Exception as exc:  # noqa: BLE001
-            _queue_event(queue, "error", {"message": str(exc)})
-            _queue_event(queue, "done", {"session_id": session_id, "failed": True})
-
-    asyncio.create_task(arxiv_pipeline())
-    return {"session_id": session_id, "status_stream_url": f"/ingest/{session_id}/events"}
+    paper = await create_paper(
+        user_id=current_user.id,
+        title=f"arXiv: {payload.arxiv_ref}",
+        authors=[],
+        arxiv_id=payload.arxiv_ref,
+    )
+    request.app.state.ingest_queues[paper.id] = asyncio.Queue()
+    asyncio.create_task(
+        _run_pipeline(
+            request=request,
+            paper_id=paper.id,
+            user_id=current_user.id,
+            arxiv_ref=payload.arxiv_ref,
+        )
+    )
+    return {"paper_id": paper.id, "status_stream_url": f"/ingest/{paper.id}/events"}
 
 
-@router.get("/{session_id}/events")
-async def ingest_events(request: Request, session_id: str) -> EventSourceResponse:
-    queue = request.app.state.ingest_queues.get(session_id)
+@router.get("/{paper_id}/events")
+async def ingest_events(
+    request: Request,
+    paper_id: str,
+    current_user: Any = Depends(get_current_user),
+) -> EventSourceResponse:
+    paper = await get_paper_by_id(paper_id)
+    if not paper or paper.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    queue = request.app.state.ingest_queues.get(paper_id)
     if queue is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+        async def already_done():
+            yield {"event": "done", "data": json.dumps({"paper_id": paper_id})}
+
+        return EventSourceResponse(already_done())
 
     async def event_gen():
         try:
@@ -142,15 +213,28 @@ async def ingest_events(request: Request, session_id: str) -> EventSourceRespons
                 if event.get("event") == "done":
                     break
         finally:
-            request.app.state.ingest_queues.pop(session_id, None)
+            request.app.state.ingest_queues.pop(paper_id, None)
 
     return EventSourceResponse(event_gen())
 
 
-@router.get("/{session_id}/pdf")
-async def session_pdf(request: Request, session_id: str) -> Response:
-    store = request.app.state.session_store
-    pdf_bytes = await store.get(session_id, "pdf_bytes")
-    if pdf_bytes is None:
-        raise HTTPException(status_code=404, detail="PDF not found for session")
+@router.get("/{paper_id}/pdf")
+async def paper_pdf(
+    paper_id: str,
+    current_user: Any = Depends(get_current_user),
+) -> Response:
+    paper = await get_paper_by_id(paper_id)
+    if not paper or paper.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    parsed = paper.parsed_paper or {}
+    pdf_b64 = parsed.get("pdf_bytes_b64") if isinstance(parsed, dict) else None
+    if not pdf_b64:
+        raise HTTPException(status_code=404, detail="PDF bytes unavailable")
+    try:
+        pdf_bytes = base64.b64decode(pdf_b64.encode("ascii"))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail="Corrupt PDF payload in storage") from exc
+
     return Response(content=pdf_bytes, media_type="application/pdf")
+
