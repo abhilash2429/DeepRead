@@ -1,18 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-from backend.memory.session_memory import SessionMemoryManager
-from backend.routers.conversation import router as conversation_router
-from backend.routers.ingest import router as ingest_router
-from backend.services.gemini_client import GeminiClient
-from backend.store.session_store import SessionStore, cleanup_loop
 
 
 def _load_local_env() -> None:
@@ -29,30 +19,45 @@ def _load_local_env() -> None:
 
 _load_local_env()
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+
+from backend.db.prisma import prisma_lifespan
+from backend.memory.session_memory import SessionMemoryManager
+from backend.routers.auth import router as auth_router
+from backend.routers.conversation import router as conversation_router
+from backend.routers.ingest import router as ingest_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.session_store = SessionStore(ttl_seconds=7200)
     app.state.ingest_queues = {}
-    app.state.gemini = GeminiClient(model_name="gemini-flash-latest")
-    app.state.memory_manager = SessionMemoryManager(session_dir=os.getenv("SESSION_DIR", "sessions"))
-    cleanup_task = asyncio.create_task(cleanup_loop(app.state.session_store))
-    try:
+    app.state.memory_manager = SessionMemoryManager()
+    async with prisma_lifespan():
         yield
-    finally:
-        cleanup_task.cancel()
 
 
-app = FastAPI(title="DeepRead API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="PaperLens API", version="0.2.0", lifespan=lifespan)
+
+frontend_origin = os.getenv("NEXTAUTH_URL", "http://localhost:3000")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[frontend_origin, "http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("JWT_SECRET", "dev-secret"),
+    same_site="lax",
+    https_only=False,
+)
+
+app.include_router(auth_router)
 app.include_router(ingest_router)
 app.include_router(conversation_router)
 
