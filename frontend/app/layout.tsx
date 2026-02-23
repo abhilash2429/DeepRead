@@ -1,12 +1,12 @@
-import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+﻿import type { Metadata } from "next";
+import { DM_Mono, Instrument_Serif, Syne } from "next/font/google";
 
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
-const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
-
 import { Providers } from "./Providers";
+
+const syne = Syne({ subsets: ["latin"], variable: "--font-sans" });
+const dmMono = DM_Mono({ subsets: ["latin"], variable: "--font-mono", weight: ["400", "500"] });
+const instrumentSerif = Instrument_Serif({ subsets: ["latin"], variable: "--font-serif", weight: "400" });
 
 export const metadata: Metadata = {
   title: "DeepRead",
@@ -16,11 +16,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body className={`${inter.variable} ${jetbrainsMono.variable}`}>
-        <Providers>
-          {children}
-        </Providers>
+      <body className={`${syne.variable} ${dmMono.variable} ${instrumentSerif.variable}`}>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
 }
+
