@@ -71,6 +71,13 @@ def _normalize_samesite(raw: str) -> str:
         return "lax"
     return value
 
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
 if APP_ENV in {"prod", "production"}:
     if len(JWT_SECRET_VALUE) < 32:
         raise RuntimeError("JWT_SECRET must be set and at least 32 characters in production.")
@@ -97,6 +104,7 @@ if not SESSION_SECRET_VALUE:
     os.environ["SESSION_SECRET"] = SESSION_SECRET_VALUE
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -142,6 +150,7 @@ else:
 allow_origins = list(dict.fromkeys(allow_origins))
 cookie_secure = APP_ENV in {"prod", "production"}
 cookie_samesite = _normalize_samesite(os.getenv("COOKIE_SAMESITE", "lax"))
+app.state.capacity_lock = _env_bool("CAPACITY_LOCK", False)
 
 app.add_middleware(
     CORSMiddleware,
@@ -157,6 +166,22 @@ app.add_middleware(
     same_site=cookie_samesite,
     https_only=cookie_secure,
 )
+
+
+@app.middleware("http")
+async def capacity_lock_guard(request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    if app.state.capacity_lock:
+        path = request.url.path
+        if path.startswith("/ingest") or path.startswith("/conversation"):
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "detail": "Live analysis is temporarily paused due to API capacity. Please explore example walkthroughs.",
+                },
+            )
+    return await call_next(request)
 
 app.include_router(auth_router)
 app.include_router(ingest_router)
