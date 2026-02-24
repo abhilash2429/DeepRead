@@ -78,6 +78,12 @@ if APP_ENV in {"prod", "production"}:
         raise RuntimeError("SESSION_SECRET must be set and at least 32 characters in production.")
     _validate_public_url("NEXTAUTH_URL")
     _validate_public_url("GOOGLE_REDIRECT_URI")
+    github_client_id = os.getenv("GITHUB_CLIENT_ID", "").strip()
+    github_client_secret = os.getenv("GITHUB_CLIENT_SECRET", "").strip()
+    if github_client_id or github_client_secret:
+        if not github_client_id or not github_client_secret:
+            raise RuntimeError("Set both GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in production.")
+        _validate_public_url("GITHUB_REDIRECT_URI")
     if os.getenv("NEXT_PUBLIC_API_BASE"):
         _validate_public_url("NEXT_PUBLIC_API_BASE")
 elif not JWT_SECRET_VALUE:

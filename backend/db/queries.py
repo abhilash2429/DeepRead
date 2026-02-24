@@ -42,6 +42,37 @@ async def get_or_create_user(google_sub: str, email: str, name: str, avatar_url:
     )
 
 
+async def get_or_create_user_from_github(github_id: str, email: str, name: str, avatar_url: str | None) -> Any:
+    existing_by_email = await prisma.user.find_unique(where={"email": email})
+    if existing_by_email:
+        return await prisma.user.update(
+            where={"id": existing_by_email.id},
+            data={
+                "name": name,
+                "avatar_url": avatar_url,
+            },
+        )
+
+    return await prisma.user.upsert(
+        where={"google_sub": f"github:{github_id}"},
+        data={
+            "create": {
+                "google_sub": f"github:{github_id}",
+                "email": email,
+                "name": name,
+                "avatar_url": avatar_url,
+                "plan": "FREE",
+                "papers_analyzed": 0,
+            },
+            "update": {
+                "email": email,
+                "name": name,
+                "avatar_url": avatar_url,
+            },
+        },
+    )
+
+
 async def get_user_by_id(user_id: str) -> Any:
     return await prisma.user.find_unique(where={"id": user_id})
 

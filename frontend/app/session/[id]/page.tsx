@@ -52,7 +52,7 @@ export default function SessionPage() {
       }
     } catch (error) {
       if (isUnauthorizedError(error)) {
-        router.replace("/");
+        router.replace("/signin");
         return;
       }
       throw error;
@@ -205,7 +205,7 @@ export default function SessionPage() {
       },
       onError: (msg, status) => {
         if (status === 401) {
-          router.replace("/");
+          router.replace("/signin");
           return;
         }
         setChatError(msg);
@@ -277,7 +277,7 @@ export default function SessionPage() {
                   await refreshState(paperId);
                 } catch (error) {
                   if (isUnauthorizedError(error)) {
-                    router.replace("/");
+                    router.replace("/signin");
                     return;
                   }
                   setChatError(error instanceof Error ? error.message : "Failed to resolve ambiguity.");

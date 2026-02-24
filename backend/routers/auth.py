@@ -10,7 +10,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 
-from backend.db.queries import FREE_PLAN_LIMIT, get_or_create_user, get_user_by_id
+from backend.db.queries import (
+    FREE_PLAN_LIMIT,
+    get_or_create_user,
+    get_or_create_user_from_github,
+    get_user_by_id,
+)
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -35,6 +40,15 @@ oauth.register(
     client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
     server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
     client_kwargs={"scope": "openid email profile"},
+)
+oauth.register(
+    name="github",
+    client_id=os.getenv("GITHUB_CLIENT_ID"),
+    client_secret=os.getenv("GITHUB_CLIENT_SECRET"),
+    access_token_url="https://github.com/login/oauth/access_token",
+    authorize_url="https://github.com/login/oauth/authorize",
+    api_base_url="https://api.github.com/",
+    client_kwargs={"scope": "read:user user:email"},
 )
 
 
@@ -77,12 +91,25 @@ async def get_current_user(request: Request) -> Any:
     return user
 
 
+def _set_auth_cookie(response: Response, jwt_token: str) -> None:
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=jwt_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        max_age=JWT_EXPIRE_MINUTES * 60,
+    )
+
+
 @router.get("/google")
 async def auth_google(request: Request):
     # Remove stale pending OAuth state to avoid collisions on repeated sign-in attempts.
     for key in list(request.session.keys()):
         if key.startswith("_state_google_"):
             request.session.pop(key, None)
+    if not os.getenv("GOOGLE_CLIENT_ID") or not os.getenv("GOOGLE_CLIENT_SECRET"):
+        raise HTTPException(status_code=503, detail="Google OAuth is not configured")
     redirect_uri = os.getenv("GOOGLE_REDIRECT_URI") or str(request.url_for("auth_google_callback"))
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
@@ -120,14 +147,76 @@ async def auth_google_callback(request: Request):
     jwt_token = _encode_jwt({"user_id": user.id, "email": user.email, "plan": user.plan})
 
     response = RedirectResponse(url=f"{frontend_base}/upload")
-    response.set_cookie(
-        key=COOKIE_NAME,
-        value=jwt_token,
-        httponly=True,
-        secure=COOKIE_SECURE,
-        samesite=COOKIE_SAMESITE,
-        max_age=JWT_EXPIRE_MINUTES * 60,
+    _set_auth_cookie(response, jwt_token)
+    return response
+
+
+@router.get("/github")
+async def auth_github(request: Request):
+    for key in list(request.session.keys()):
+        if key.startswith("_state_github_"):
+            request.session.pop(key, None)
+    if not os.getenv("GITHUB_CLIENT_ID") or not os.getenv("GITHUB_CLIENT_SECRET"):
+        raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
+    redirect_uri = os.getenv("GITHUB_REDIRECT_URI") or str(request.url_for("auth_github_callback"))
+    return await oauth.github.authorize_redirect(request, redirect_uri)
+
+
+@router.get("/github/callback")
+async def auth_github_callback(request: Request):
+    frontend_base = os.getenv("NEXTAUTH_URL", "http://localhost:3000")
+    try:
+        token = await oauth.github.authorize_access_token(request)
+    except MismatchingStateError:
+        for key in list(request.session.keys()):
+            if key.startswith("_state_github_"):
+                request.session.pop(key, None)
+        return RedirectResponse(url=f"{frontend_base}/?auth_error=state_mismatch", status_code=307)
+
+    user_response = await oauth.github.get("user", token=token)
+    user_info = user_response.json() if user_response else {}
+    email = str(user_info.get("email", "")).strip().lower()
+
+    if not email:
+        emails_response = await oauth.github.get("user/emails", token=token)
+        emails = emails_response.json() if emails_response else []
+        if isinstance(emails, list):
+            primary_verified = next(
+                (
+                    item for item in emails
+                    if isinstance(item, dict) and item.get("primary") and item.get("verified") and item.get("email")
+                ),
+                None,
+            )
+            fallback_verified = next(
+                (
+                    item for item in emails
+                    if isinstance(item, dict) and item.get("verified") and item.get("email")
+                ),
+                None,
+            )
+            selected = primary_verified or fallback_verified
+            if selected:
+                email = str(selected.get("email", "")).strip().lower()
+
+    github_id = str(user_info.get("id", "")).strip()
+    login = str(user_info.get("login", "")).strip()
+    display_name = str(user_info.get("name", "")).strip() or login or email
+    avatar_url = user_info.get("avatar_url")
+
+    if not github_id or not email:
+        raise HTTPException(status_code=400, detail="Failed to retrieve GitHub profile")
+
+    user = await get_or_create_user_from_github(
+        github_id=github_id,
+        email=email,
+        name=display_name,
+        avatar_url=avatar_url,
     )
+    jwt_token = _encode_jwt({"user_id": user.id, "email": user.email, "plan": user.plan})
+
+    response = RedirectResponse(url=f"{frontend_base}/upload")
+    _set_auth_cookie(response, jwt_token)
     return response
 
 

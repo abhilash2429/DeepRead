@@ -207,7 +207,7 @@ export default function HomePage() {
           <div className={styles.logoDot} />
           DeepRead
         </div>
-        <Link href="/upload" className={styles.navCta}>
+        <Link href="/signin" className={styles.navCta}>
           Get Started - It&apos;s Free
         </Link>
       </nav>
@@ -229,7 +229,7 @@ export default function HomePage() {
           Drop any ML research paper. DeepRead reads it the way an expert would - decoding every equation, flagging every ambiguity, generating labeled implementation code - then hands you the brief your advisor never wrote.
         </p>
         <div className={styles.heroCtaRow}>
-          <Link href="/upload" className={styles.btnPrimary}>
+          <Link href="/signin" className={styles.btnPrimary}>
             Analyze a Paper
           </Link>
           <a href="#how-it-works" className={styles.btnGhost} onClick={handleHowItWorksClick}>
@@ -385,7 +385,7 @@ export default function HomePage() {
           Start <em>implementing</em> them.
         </h2>
         <p className={styles.sectionDesc}>Free for your first 3 papers. No credit card.</p>
-        <Link href="/upload" className={styles.btnPrimary}>
+        <Link href="/signin" className={styles.btnPrimary}>
           Analyze Your First Paper
         </Link>
       </section>

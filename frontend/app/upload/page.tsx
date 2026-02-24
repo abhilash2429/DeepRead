@@ -29,8 +29,12 @@ export default function UploadPage() {
   useEffect(() => {
     getAuthProfile()
       .then((p) => { setProfile(p); setAuthChecked(true); })
-      .catch(() => { setProfile(null); setAuthChecked(true); });
-  }, []);
+      .catch(() => {
+        setProfile(null);
+        setAuthChecked(true);
+        router.replace("/signin");
+      });
+  }, [router]);
 
   function onDrop(event: DragEvent<HTMLLabelElement>) {
     event.preventDefault();
@@ -57,13 +61,13 @@ export default function UploadPage() {
     try {
       const result = file ? await ingestUpload(file) : await ingestArxiv(arxivRef.trim());
       sessionStorage.setItem("deepread_active_paper_id", result.paper_id);
-      router.push("/session/analyze");
+      router.push("/dashboard");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to start analysis.";
       if (isUnauthorizedError(err) || msg.includes("Authentication")) {
         setError("Session expired. Please sign in again.");
         setProfile(null);
-        router.replace("/");
+        router.replace("/signin");
       } else {
         setError(msg);
       }
@@ -139,10 +143,10 @@ export default function UploadPage() {
 
         {authChecked && !profile && (
           <a
-            href={`${API_BASE}/auth/google`}
+            href="/signin"
             className="mt-4 flex items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-300 transition-colors hover:bg-zinc-800"
           >
-            Sign in with Google
+            Go to sign in
           </a>
         )}
 
