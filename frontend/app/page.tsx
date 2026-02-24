@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import styles from "./page.module.css";
+import { EXAMPLE_LIST } from "@/lib/examples";
 
 const flowSvgMarkup = String.raw`<svg class="${styles.flowSvg}" viewBox="0 0 1060 640" fill="none" xmlns="http://www.w3.org/2000/svg" style="font-family: 'DM Mono', monospace;">
   <defs>
@@ -191,10 +192,17 @@ const flowSvgMarkup = String.raw`<svg class="${styles.flowSvg}" viewBox="0 0 106
   <text x="596" y="639" fill="rgba(200,200,224,0.4)" font-size="8">artifact output</text>
 </svg>`;
 
+const CAPACITY_LOCK = process.env.NEXT_PUBLIC_CAPACITY_LOCK === "true";
+
 export default function HomePage() {
   const handleHowItWorksClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
     document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleExamplesClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    document.getElementById("example-implementations")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (
@@ -207,14 +215,26 @@ export default function HomePage() {
           <div className={styles.logoDot} />
           DeepRead
         </div>
-        <Link href="/signin" className={styles.navCta}>
-          Get Started - It&apos;s Free
-        </Link>
+        {CAPACITY_LOCK ? (
+          <a href="#example-implementations" className={styles.navCta} onClick={handleExamplesClick}>
+            View Examples
+          </a>
+        ) : (
+          <Link href="/signin" className={styles.navCta}>
+            Get Started - It&apos;s Free
+          </Link>
+        )}
       </nav>
 
       <div className={styles.hero}>
         <div className={styles.heroGlow} />
-        <div className={styles.heroTag}>Agentic ML Paper Comprehension</div>
+        {CAPACITY_LOCK && (
+          <div className={styles.capacityBanner}>
+            <span className={styles.capacityIcon}>⚠</span>
+            <span className={styles.capacityDot} />
+            Live analysis paused — API capacity reached.
+          </div>
+        )}
         <h1 className={styles.heroH1}>
           Papers are written
           <br />
@@ -226,17 +246,72 @@ export default function HomePage() {
           for builders.
         </h2>
         <p className={styles.heroDesc}>
-          Drop any ML research paper. DeepRead reads it the way an expert would - decoding every equation, flagging every ambiguity, generating labeled implementation code - then hands you the brief your advisor never wrote.
+          {CAPACITY_LOCK
+            ? "Explore three full implementation walkthroughs while we expand sponsored capacity."
+            : "Drop any ML research paper. DeepRead reads it the way an expert would - decoding every equation, flagging every ambiguity, generating labeled implementation code - then hands you the brief your advisor never wrote."}
         </p>
-        <div className={styles.heroCtaRow}>
-          <Link href="/signin" className={styles.btnPrimary}>
-            Analyze a Paper
-          </Link>
-          <a href="#how-it-works" className={styles.btnGhost} onClick={handleHowItWorksClick}>
-            See how it works
-          </a>
-        </div>
+        {CAPACITY_LOCK ? (
+          <div className={styles.heroCtaRow}>
+            <a href="#example-implementations" className={styles.btnPrimary} onClick={handleExamplesClick}>
+              View Examples
+            </a>
+            <button type="button" className={styles.btnGhostDisabled} disabled>
+              Analyze a Paper (Temporarily Unavailable)
+            </button>
+          </div>
+        ) : (
+          <div className={styles.heroCtaRow}>
+            <Link href="/signin" className={styles.btnPrimary}>
+              Analyze a Paper
+            </Link>
+            <a href="#how-it-works" className={styles.btnGhost} onClick={handleHowItWorksClick}>
+              See how it works
+            </a>
+          </div>
+        )}
+        {CAPACITY_LOCK && (
+          <p className={styles.capacityNote}>
+            Reason: Gemini API limits reached this cycle. Live uploads will reopen after sponsored capacity expansion.
+          </p>
+        )}
       </div>
+
+      {CAPACITY_LOCK && (
+        <>
+          <hr className={styles.divider} />
+          <section id="example-implementations" className={styles.section}>
+            <div className={styles.sectionLabel}>Explore Examples</div>
+            <h2 className={styles.sectionH2}>
+              Three complete
+              <br />
+              <em>implementation</em> walkthroughs
+            </h2>
+            <p className={styles.sectionDesc}>
+              Each walkthrough mirrors DeepRead output format: architecture summary, implementation map, ambiguity notes,
+              training recipe, and downloadable sample artifacts.
+            </p>
+            <div className={styles.demoGrid}>
+              {EXAMPLE_LIST.map((example) => (
+                <article key={example.slug} className={styles.demoCard}>
+                  <div className={styles.demoMeta}>{example.title}</div>
+                  <h3 className={styles.demoTitle}>{example.paperTitle}</h3>
+                  <p className={styles.demoDesc}>{example.summary}</p>
+                  <div className={styles.demoTagRow}>
+                    {example.badges.map((badge) => (
+                      <span key={`${example.slug}-${badge}`} className={styles.demoTag}>
+                        {badge}
+                      </span>
+                    ))}
+                  </div>
+                  <Link href={`/examples/${example.slug}`} className={styles.demoLink}>
+                    Open Walkthrough
+                  </Link>
+                </article>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
 
       <hr className={styles.divider} />
 
@@ -384,10 +459,18 @@ export default function HomePage() {
           <br />
           Start <em>implementing</em> them.
         </h2>
-        <p className={styles.sectionDesc}>Free for your first 3 papers. No credit card.</p>
-        <Link href="/signin" className={styles.btnPrimary}>
-          Analyze Your First Paper
-        </Link>
+        <p className={styles.sectionDesc}>
+          {CAPACITY_LOCK ? "Live analysis is paused while we are at API capacity." : "Free for your first 3 papers. No credit card."}
+        </p>
+        {CAPACITY_LOCK ? (
+          <a href="#example-implementations" className={styles.btnPrimary} onClick={handleExamplesClick}>
+            View Examples
+          </a>
+        ) : (
+          <Link href="/signin" className={styles.btnPrimary}>
+            Analyze Your First Paper
+          </Link>
+        )}
       </section>
 
       <footer className={styles.footer}>
