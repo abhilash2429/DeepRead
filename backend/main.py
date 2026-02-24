@@ -114,7 +114,7 @@ async def lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title="PaperLens API", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="DeepRead API", version="0.2.0", lifespan=lifespan)
 
 frontend_origin = os.getenv("NEXTAUTH_URL", "http://localhost:3000").strip()
 extra_frontend_origins = [
