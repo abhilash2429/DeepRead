@@ -191,7 +191,13 @@ const flowSvgMarkup = String.raw`<svg class="${styles.flowSvg}" viewBox="0 0 106
   <text x="596" y="639" fill="rgba(200,200,224,0.4)" font-size="8">artifact output</text>
 </svg>`;
 
-export default function HomePage() {`n  return (
+export default function HomePage() {
+  const handleHowItWorksClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  return (
     <main className={styles.page}>
       <div className={styles.noiseOverlay} />
       <div className={styles.gridBg} />
@@ -226,7 +232,7 @@ export default function HomePage() {`n  return (
           <Link href="/upload" className={styles.btnPrimary}>
             Analyze a Paper
           </Link>
-          <a href="#how-it-works" className={styles.btnGhost}>
+          <a href="#how-it-works" className={styles.btnGhost} onClick={handleHowItWorksClick}>
             See how it works
           </a>
         </div>
@@ -395,7 +401,6 @@ export default function HomePage() {`n  return (
     </main>
   );
 }
-
 
 
 
