@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { getAuthProfile, isUnauthorizedError } from "@/lib/api";
+import { API_BASE, getAuthProfile, isUnauthorizedError } from "@/lib/api";
 import { AuthProfile } from "@/lib/types";
+import styles from "./dashboard.module.css";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -30,50 +31,124 @@ export default function DashboardPage() {
   }, [router]);
 
   if (loading) {
-    return (
-      <main className="flex min-h-screen items-center justify-center px-4">
-        <div className="text-sm text-zinc-500">Loading dashboard...</div>
-      </main>
-    );
+    return <div className={styles.loading}>loading dashboard...</div>;
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <section className="surface w-full max-w-2xl p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold text-zinc-50">Dashboard</h1>
-            <p className="mt-1 text-sm text-zinc-500">
-              {profile ? `Welcome back, ${profile.name}.` : "Welcome back."}
-            </p>
-          </div>
-          <span className="rounded-full border border-zinc-700 px-2.5 py-1 text-[10px] uppercase tracking-wider text-zinc-400">
-            {profile?.plan ?? "Free"}
-          </span>
-        </div>
+    <div className={styles.page}>
+      {/* Nav */}
+      <nav className={styles.nav}>
+        <Link href="/" className={styles.logo}>
+          <span className={styles.logoDot} />
+          DeepRead
+        </Link>
 
-        <div className="mt-6 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
-          <div className="text-xs uppercase tracking-wider text-zinc-500">Current Paper</div>
-          <div className="mt-2 text-sm text-zinc-300">
-            {activePaperId ? `Paper ID: ${activePaperId}` : "No active paper yet. Start a new analysis from upload."}
-          </div>
-        </div>
-
-        <div className="mt-6 flex flex-wrap gap-3">
-          <Link
-            href="/upload"
-            className="rounded-lg border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-          >
-            Upload Another Paper
-          </Link>
-          <Link
-            href={activePaperId ? "/session/analyze" : "/upload"}
-            className="rounded-lg bg-zinc-100 px-4 py-2.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200"
-          >
-            {activePaperId ? "Open Live Analysis" : "Go To Upload"}
+        <div className={styles.navRight}>
+          {profile && (
+            <>
+              <span className={styles.planBadge}>
+                {profile.plan === "PRO" ? "Pro" : "Free"}
+              </span>
+              <span className={styles.userName}>{profile.name}</span>
+              <button
+                className={styles.signOutBtn}
+                onClick={async () => {
+                  await fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" });
+                  router.replace("/signin");
+                }}
+              >
+                sign out
+              </button>
+            </>
+          )}
+          <Link href="/upload" className={styles.uploadLink}>
+            + New Paper
           </Link>
         </div>
-      </section>
-    </main>
+      </nav>
+
+      {/* Main */}
+      <div className={styles.content}>
+        {/* Greeting */}
+        <div className={styles.eyebrow}>dashboard</div>
+        <h1 className={styles.greeting}>
+          {profile ? `Welcome back, ${profile.name.split(" ")[0]}.` : "Welcome back."}
+        </h1>
+
+        {/* Stats row */}
+        <div className={styles.statsRow}>
+          <div className={styles.statCard}>
+            <div className={styles.statLabel}>Papers Analyzed</div>
+            <div className={styles.statValue}>{profile?.papers_analyzed ?? 0}</div>
+            <div className={styles.statSub}>of {profile?.limit ?? 10} on free plan</div>
+          </div>
+          <div className={styles.statCard}>
+            <div className={styles.statLabel}>Active paper</div>
+            <div className={styles.statValue}>{activePaperId ? "1" : "—"}</div>
+            <div className={styles.statSub}>{activePaperId ? "ready to open" : "none uploaded"}</div>
+          </div>
+          <div className={styles.statCard}>
+            <div className={styles.statLabel}>Plan</div>
+            <div className={styles.statValue}>{profile?.plan === "PRO" ? "Pro" : "Free"}</div>
+            <div className={styles.statSub}>{profile?.plan === "PRO" ? "unlimited papers" : `${(typeof profile?.limit === "number" ? profile.limit : 10) - (profile?.papers_analyzed ?? 0)} remaining`}</div>
+          </div>
+        </div>
+
+        {/* Active paper */}
+        <div className={styles.sectionLabel}>active paper</div>
+
+        {activePaperId ? (
+          <div className={styles.paperCard}>
+            <div className={styles.paperMeta}>{activePaperId}</div>
+            <div className={styles.paperTitle}>Paper loaded — open the analysis session to view insights.</div>
+            <div className={styles.paperActions}>
+              <Link href="/session/analyze" className={styles.btnPrimary}>
+                Open Analysis →
+              </Link>
+              <Link href="/upload" className={styles.btnGhost}>
+                Upload Another
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className={styles.paperEmpty}>
+            <div className={styles.paperMeta}>No active paper. Upload one to get started.</div>
+          </div>
+        )}
+
+        {/* Recent sessions placeholder */}
+        <div className={styles.sectionLabel}>recent sessions</div>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Paper ID</th>
+              <th>Date</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {activePaperId ? (
+              <tr>
+                <td>{activePaperId}</td>
+                <td>Today</td>
+                <td><span className={`${styles.pill} ${styles.pillReady}`}>Ready</span></td>
+                <td>
+                  <Link href="/session/analyze" className={styles.btnGhost} style={{ padding: "5px 12px", fontSize: "12px" }}>
+                    Open
+                  </Link>
+                </td>
+              </tr>
+            ) : (
+              <tr>
+                <td colSpan={4} style={{ color: "#3f3f46", fontFamily: "var(--font-mono)", fontSize: "12px", paddingTop: "20px" }}>
+                  no sessions yet
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
