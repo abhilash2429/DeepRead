@@ -21,6 +21,7 @@ from backend.models.artifacts import CodeSnippet
 from backend.models.briefing import InternalRepresentation
 from backend.models.paper import ElementType, ParsedPaper
 from backend.prompts.briefing_sections import SECTION_PROMPTS
+from backend.utils.llm_retry import call_with_llm_retry
 
 
 BRIEFING_MODEL_PRO = ChatGoogleGenerativeAI(
@@ -168,31 +169,40 @@ async def run_briefing_pipeline(
                 "code_snippets": json.dumps([item.model_dump() for item in code_snippets], indent=2),
             }
 
-            chunks: list[str] = []
-            async for event in chain.astream_events(payload, version="v2"):
-                if event.get("event") != "on_chat_model_stream":
-                    continue
-                chunk = event.get("data", {}).get("chunk")
-                text = ""
-                if hasattr(chunk, "content"):
-                    raw_content = getattr(chunk, "content")
-                    if isinstance(raw_content, list):
-                        text = "".join(
-                            part.get("text", "") if isinstance(part, dict) else str(part)
-                            for part in raw_content
-                        )
-                    else:
-                        text = str(raw_content or "")
-                if not text:
-                    continue
-                chunks.append(text)
-                await _emit(
-                    emit_event,
-                    "section_token",
-                    {"section_number": section_number, "text": text},
-                )
+            try:
+                chunks: list[str] = []
+                async for event in chain.astream_events(payload, version="v2"):
+                    if event.get("event") != "on_chat_model_stream":
+                        continue
+                    chunk = event.get("data", {}).get("chunk")
+                    text = ""
+                    if hasattr(chunk, "content"):
+                        raw_content = getattr(chunk, "content")
+                        if isinstance(raw_content, list):
+                            text = "".join(
+                                part.get("text", "") if isinstance(part, dict) else str(part)
+                                for part in raw_content
+                            )
+                        else:
+                            text = str(raw_content or "")
+                    if not text:
+                        continue
+                    chunks.append(text)
+                    await _emit(
+                        emit_event,
+                        "section_token",
+                        {"section_number": section_number, "text": text},
+                    )
 
-            content = "".join(chunks).strip()
+                content = "".join(chunks).strip()
+            except Exception:
+                content = str(await call_with_llm_retry(lambda: chain.ainvoke(payload))).strip()
+                if content:
+                    await _emit(
+                        emit_event,
+                        "section_token",
+                        {"section_number": section_number, "text": content},
+                    )
             state.setdefault("completed_sections", {})[f"section_{section_number}"] = content
             state["generation_progress"] = section_number
             state["code_snippets"] = code_snippets

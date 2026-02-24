@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import os
 import secrets
+import time
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
@@ -78,6 +80,26 @@ def _env_bool(name: str, default: bool = False) -> bool:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return max(minimum, int(raw.strip()))
+    except Exception:
+        return default
+
+
+def _client_identifier(request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        # First hop is the originating client.
+        return forwarded_for.split(",", 1)[0].strip() or "unknown"
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
 if APP_ENV in {"prod", "production"}:
     if len(JWT_SECRET_VALUE) < 32:
         raise RuntimeError("JWT_SECRET must be set and at least 32 characters in production.")
@@ -124,6 +146,11 @@ async def lifespan(app: FastAPI):
     app.state.ingest_pending = 0
     app.state.ingest_pending_lock = asyncio.Lock()
     app.state.memory_manager = SessionMemoryManager()
+    app.state.ingest_rate_limit_per_minute = _env_int("INGEST_RATE_LIMIT_PER_MINUTE", 15)
+    app.state.conversation_rate_limit_per_minute = _env_int("CONVERSATION_RATE_LIMIT_PER_MINUTE", 90)
+    app.state.rate_limit_window_seconds = _env_int("RATE_LIMIT_WINDOW_SECONDS", 60)
+    app.state.rate_limit_lock = asyncio.Lock()
+    app.state.rate_limit_buckets = {}
     async with prisma_lifespan():
         yield
 
@@ -181,6 +208,57 @@ async def capacity_lock_guard(request, call_next):
                     "detail": "Live analysis is temporarily paused due to API capacity. Please explore example walkthroughs.",
                 },
             )
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def request_rate_limit_guard(request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    if request.method != "POST":
+        return await call_next(request)
+
+    path = request.url.path
+    scope = None
+    if path.startswith("/ingest/"):
+        scope = "ingest"
+        limit = int(app.state.ingest_rate_limit_per_minute)
+    elif path.startswith("/conversation/"):
+        scope = "conversation"
+        limit = int(app.state.conversation_rate_limit_per_minute)
+    else:
+        return await call_next(request)
+
+    window = int(app.state.rate_limit_window_seconds)
+    key = f"{scope}:{_client_identifier(request)}"
+    now = time.monotonic()
+
+    lock: asyncio.Lock = app.state.rate_limit_lock
+    async with lock:
+        buckets: dict[str, deque[float]] = app.state.rate_limit_buckets
+        entries = buckets.get(key)
+        if entries is None:
+            entries = deque()
+            buckets[key] = entries
+        while entries and now - entries[0] >= window:
+            entries.popleft()
+        if len(entries) >= limit:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "detail": (
+                        f"Too many {scope} requests from this client. "
+                        f"Please retry in about {window} seconds."
+                    ),
+                },
+            )
+        entries.append(now)
+
+        if len(buckets) > 5000:
+            stale_keys = [bucket_key for bucket_key, values in buckets.items() if not values]
+            for bucket_key in stale_keys[:500]:
+                buckets.pop(bucket_key, None)
+
     return await call_next(request)
 
 app.include_router(auth_router)

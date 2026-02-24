@@ -6,6 +6,7 @@ from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from backend.prompts.figure import FIGURE_PROMPT
+from backend.utils.llm_retry import call_with_llm_retry
 
 
 VISION_MODEL = ChatGoogleGenerativeAI(
@@ -33,18 +34,20 @@ async def describe_figure(image_b64: str, caption: str | None) -> str:
         ]
     )
     try:
-        response = await VISION_MODEL.ainvoke([message])
+        response = await call_with_llm_retry(lambda: VISION_MODEL.ainvoke([message]))
         return str(response.content or "").strip() or "Figure interpretation unavailable."
     except Exception:
-        fallback = await VISION_MODEL.ainvoke(
-            [
-                HumanMessage(
-                    content=(
-                        f"{FIGURE_PROMPT}\n\n"
-                        f"Caption:\n{caption or '(none)'}\n\n"
-                        "Image could not be processed. Infer only from caption."
+        fallback = await call_with_llm_retry(
+            lambda: VISION_MODEL.ainvoke(
+                [
+                    HumanMessage(
+                        content=(
+                            f"{FIGURE_PROMPT}\n\n"
+                            f"Caption:\n{caption or '(none)'}\n\n"
+                            "Image could not be processed. Infer only from caption."
+                        )
                     )
-                )
-            ]
+                ]
+            )
         )
         return str(fallback.content or "").strip() or "Figure interpretation unavailable."

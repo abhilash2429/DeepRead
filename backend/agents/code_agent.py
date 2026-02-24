@@ -10,6 +10,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from backend.models.artifacts import CodeSnippet
 from backend.prompts.code_gen import CODE_GEN_PROMPT
+from backend.utils.llm_retry import call_with_llm_retry
 
 
 CODE_MODEL_FLASH = ChatGoogleGenerativeAI(
@@ -53,17 +54,33 @@ async def generate_component_code(
     )
     code_model = CODE_MODEL_PRO if reasoning_tier == "pro" else CODE_MODEL_FLASH
     chain = prompt | code_model | parser
-    snippet = await chain.ainvoke(
-        {
-            "rules": CODE_GEN_PROMPT,
-            "component_name": component_name,
-            "component_description": component_description,
-            "relevant_sections": ", ".join(relevant_sections),
-            "relevant_equations": ", ".join(relevant_equations),
-            "resolved_ambiguities": resolved_ambiguities,
-            "format_instructions": parser.get_format_instructions(),
-        }
-    )
+    payload = {
+        "rules": CODE_GEN_PROMPT,
+        "component_name": component_name,
+        "component_description": component_description,
+        "relevant_sections": ", ".join(relevant_sections),
+        "relevant_equations": ", ".join(relevant_equations),
+        "resolved_ambiguities": resolved_ambiguities,
+        "format_instructions": parser.get_format_instructions(),
+    }
+    try:
+        snippet = await call_with_llm_retry(lambda: chain.ainvoke(payload))
+    except Exception:
+        fallback_name = re.sub(r"[^0-9a-zA-Z_]", "_", component_name.strip()) or "component"
+        return CodeSnippet(
+            component_name=component_name,
+            code=(
+                f"class {fallback_name}:\n"
+                "    def __init__(self) -> None:\n"
+                "        raise NotImplementedError('Code generation is temporarily unavailable.')\n"
+            ),
+            provenance="missing",
+            assumption_notes=[
+                "Automatic code generation failed due to a temporary model error.",
+            ],
+            source_sections=list(relevant_sections),
+            equation_references=list(relevant_equations),
+        )
     snippet.code = _extract_python(snippet.code)
     if not snippet.component_name:
         snippet.component_name = component_name

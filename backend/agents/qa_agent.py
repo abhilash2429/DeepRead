@@ -14,6 +14,7 @@ from backend.models.briefing import InternalRepresentation
 from backend.models.paper import ParsedPaper
 from backend.prompts.qa import QA_PROMPT
 from backend.tools import build_analysis_tools, build_code_tools, build_knowledge_tools, build_paper_tools
+from backend.utils.llm_retry import call_with_llm_retry
 
 
 QA_MODEL = ChatGoogleGenerativeAI(
@@ -74,8 +75,16 @@ def _build_executor(
 def _build_qa_graph(executor: AgentExecutor):
     async def qa_node(state: QAState) -> QAState:
         chat_history = list(state.get("messages", []))
-        result = await executor.ainvoke({"input": state["user_message"], "chat_history": chat_history[-12:]})
-        output = str(result.get("output", "")).strip()
+        try:
+            result = await call_with_llm_retry(
+                lambda: executor.ainvoke({"input": state["user_message"], "chat_history": chat_history[-12:]})
+            )
+            output = str(result.get("output", "")).strip()
+        except Exception:
+            output = (
+                "I hit a temporary model issue while generating the answer. "
+                "Please retry this question in a few seconds."
+            )
         state["response"] = output
         state["messages"] = [*chat_history, HumanMessage(content=state["user_message"]), AIMessage(content=output)]
         return state

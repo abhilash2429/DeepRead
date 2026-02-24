@@ -9,6 +9,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from backend.models.briefing import InternalRepresentation
 from backend.models.paper import ElementType, ParsedPaper
 from backend.prompts.comprehension import COMPREHENSION_PROMPT
+from backend.utils.llm_retry import call_with_llm_retry
 
 
 COMPREHENSION_MODEL = ChatGoogleGenerativeAI(
@@ -37,16 +38,27 @@ async def run_comprehension(parsed_paper: ParsedPaper) -> InternalRepresentation
         "Format instructions:\n{format_instructions}"
     )
     chain = prompt | COMPREHENSION_MODEL | parser
-    return await chain.ainvoke(
-        {
-            "base_prompt": COMPREHENSION_PROMPT,
-            "title": parsed_paper.title,
-            "authors": ", ".join(parsed_paper.authors),
-            "abstract": parsed_paper.abstract,
-            "primary_task": parsed_paper.primary_task or "",
-            "prerequisites": ", ".join(parsed_paper.prerequisites_raw),
-            "figure_descriptions": "\n".join(figure_lines) if figure_lines else "(none)",
-            "full_text": parsed_paper.full_text,
-            "format_instructions": parser.get_format_instructions(),
-        }
-    )
+    payload = {
+        "base_prompt": COMPREHENSION_PROMPT,
+        "title": parsed_paper.title,
+        "authors": ", ".join(parsed_paper.authors),
+        "abstract": parsed_paper.abstract,
+        "primary_task": parsed_paper.primary_task or "",
+        "prerequisites": ", ".join(parsed_paper.prerequisites_raw),
+        "figure_descriptions": "\n".join(figure_lines) if figure_lines else "(none)",
+        "full_text": parsed_paper.full_text,
+        "format_instructions": parser.get_format_instructions(),
+    }
+    try:
+        return await call_with_llm_retry(lambda: chain.ainvoke(payload))
+    except Exception:
+        return InternalRepresentation(
+            problem_statement=parsed_paper.primary_task or "Problem statement unavailable.",
+            method_summary="Method summary unavailable due to temporary model failure.",
+            novelty="Novelty extraction unavailable.",
+            component_graph=[],
+            hyperparameter_registry=[],
+            ambiguity_log=[],
+            training_procedure="Training procedure unavailable.",
+            prerequisite_concepts=[],
+        )

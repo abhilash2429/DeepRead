@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from backend.models.paper import ElementType, ParsedPaper
 from backend.services.pdf_parser import parse_pdf
 from backend.services.vision_service import describe_figure
+from backend.utils.llm_retry import call_with_llm_retry
 
 
 INGESTION_MODEL = ChatGoogleGenerativeAI(
@@ -73,14 +74,13 @@ async def run_ingestion(
     if emit_thinking:
         emit_thinking("Inferring primary task and prerequisite concepts from full text...")
     try:
-        summary = await chain.ainvoke(
-            {
-                "format_instructions": parser.get_format_instructions(),
-                "title": parsed.title,
-                "abstract": parsed.abstract,
-                "full_text": parsed.full_text,
-            }
-        )
+        payload = {
+            "format_instructions": parser.get_format_instructions(),
+            "title": parsed.title,
+            "abstract": parsed.abstract,
+            "full_text": parsed.full_text,
+        }
+        summary = await call_with_llm_retry(lambda: chain.ainvoke(payload))
         parsed.primary_task = summary.primary_task
         parsed.prerequisites_raw = summary.prerequisites
     except Exception:
