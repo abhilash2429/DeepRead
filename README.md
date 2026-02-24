@@ -75,7 +75,7 @@ DeepRead operates as a multi-agent pipeline where each stage's output becomes th
                |  S2: Mechanism (pro)       |
                |  S3: Prerequisites (flash) |
                |  S4: Impl Map (pro)        |
-               |  S5: What's Left Out (pro) |
+               |  S5: What's Left Out (flash)|
                |  S6: How To Train (flash)  |
                |                            |
                |  Each section streamed as  |
@@ -326,17 +326,20 @@ DeepRead/
 │   │   ├── session/[id]/        # Session workspace (PDF viewer + briefing + QA)
 │   │   ├── dashboard/           # User paper history
 │   │   ├── signin/              # Authentication page
+│   │   ├── examples/            # Example paper walkthroughs
 │   │   └── layout.tsx           # Root layout, metadata, providers
 │   ├── components/
 │   │   ├── BriefingDocument.tsx  # Full briefing renderer
 │   │   ├── BriefingSection.tsx   # Individual section with streaming
 │   │   ├── ChatInput.tsx         # Q&A message input
 │   │   ├── PdfPanel.tsx          # Resizable PDF viewer (react-pdf)
+│   │   ├── PdfLever.tsx          # Drag handle for resizing the PDF panel
 │   │   ├── ArtifactDownloads.tsx # Artifact export controls
 │   │   ├── AmbiguityCard.tsx     # Ambiguity display + resolution input
 │   │   ├── CodeBlock.tsx         # Syntax-highlighted code with provenance badges
 │   │   ├── HyperparamTable.tsx   # Hyperparameter table with status coloring
 │   │   ├── PrerequisiteCard.tsx  # Prerequisite concept display
+│   │   ├── ExampleWalkthroughDocument.tsx # Example paper walkthrough renderer
 │   │   ├── ThinkingStream.tsx    # Real-time thinking indicator
 │   │   └── ThemeToggle.tsx       # Dark/light mode switch
 │   ├── hooks/
