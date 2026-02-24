@@ -2,9 +2,11 @@
 
 import { DragEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 import { API_BASE, getAuthProfile, ingestArxiv, ingestUpload, isUnauthorizedError } from "@/lib/api";
 import { AuthProfile } from "@/lib/types";
+import styles from "./upload.module.css";
 
 export default function UploadPage() {
   const router = useRouter();
@@ -53,7 +55,7 @@ export default function UploadPage() {
     if (!canSubmit || busy) return;
     if (!profile) { setError("Please sign in first."); return; }
     if (!file && !isValidArxivReference(arxivRef)) {
-      setError("Enter a valid research paper ID or URL.");
+      setError("Enter a valid arXiv paper ID or URL.");
       return;
     }
     setBusy(true);
@@ -77,91 +79,137 @@ export default function UploadPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <section className="surface w-full max-w-md p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold text-zinc-50">Analyze a Paper</h1>
-            <p className="mt-1 text-sm text-zinc-500">Upload a PDF or paste an arXiv link.</p>
-          </div>
-          <div className="flex items-center gap-4">
-            {authChecked && profile && (
-              <div className="text-right">
-                <div className="text-xs font-medium text-zinc-300">{profile.name}</div>
-                <div className="text-[10px] text-zinc-600">
-                  {profile.plan === "PRO" ? "Pro" : `${profile.papers_analyzed}/${profile.limit}`}
-                </div>
+    <div className={styles.page}>
+      {/* Nav */}
+      <nav className={styles.nav}>
+        <Link href="/" className={styles.logo}>
+          <span className={styles.logoDot} />
+          DeepRead
+        </Link>
+
+        <div className={styles.navRight}>
+          {authChecked && profile && (
+            <>
+              <Link href="/dashboard" className={styles.dashboardBtn}>
+                dashboard
+              </Link>
+              <span className={styles.userName}>{profile.name}</span>
+              <span className={styles.usageTag}>
+                {profile.plan === "PRO" ? "Pro" : `${profile.papers_analyzed} / ${profile.limit} papers`}
+              </span>
+              <button
+                className={styles.signOutBtn}
+                onClick={async () => {
+                  await fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" });
+                  setProfile(null);
+                  router.replace("/signin");
+                }}
+              >
+                sign out
+              </button>
+            </>
+          )}
+          {authChecked && !profile && (
+            <Link href="/signin" className={styles.signOutBtn}>sign in</Link>
+          )}
+        </div>
+      </nav>
+
+      {/* Content */}
+      <div className={styles.content}>
+        {/* Left — upload form */}
+        <div className={styles.left}>
+          <div className={styles.eyebrow}>upload paper</div>
+          <h1 className={styles.heading}>Drop your paper.</h1>
+          <p className={styles.sub}>Upload a PDF or paste an arXiv link to get started.</p>
+
+          {/* Drop zone */}
+          <label
+            className={`${styles.dropZone} ${dragActive ? styles.dropZoneActive : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={onDrop}
+          >
+            <input
+              type="file"
+              accept="application/pdf"
+              className="sr-only"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const selected = e.target.files?.[0] || null;
+                if (selected && !selected.name.toLowerCase().endsWith(".pdf")) {
+                  setError("Only PDF files are supported.");
+                  return;
+                }
+                setError(null);
+                setFile(selected);
+              }}
+            />
+            <div className={styles.dropIcon}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </div>
+            {file ? (
+              <div className={styles.fileChip}>
+                <span className={styles.fileChipDot} />
+                {file.name}
+              </div>
+            ) : (
+              <div className={styles.dropText}>
+                Drag a PDF here, or click to browse
               </div>
             )}
+          </label>
+
+          {/* or */}
+          <div className={styles.orDivider}>
+            <span className={styles.orText}>or</span>
           </div>
+
+          {/* arXiv input */}
+          <input
+            className={styles.arxivInput}
+            value={arxivRef}
+            onChange={(e) => setArxivRef(e.target.value)}
+            placeholder="arxiv.org/abs/... or 2310.06825"
+            disabled={!!file}
+          />
+
+          {/* Error */}
+          {error && <div className={styles.error}>{error}</div>}
+
+          {/* Submit */}
+          <button
+            className={styles.btnSubmit}
+            disabled={!canSubmit || busy}
+            onClick={onAnalyze}
+          >
+            {busy ? "Starting analysis..." : "Analyze Paper →"}
+          </button>
         </div>
 
-        <label
-          className={`mt-6 block cursor-pointer rounded-lg border border-dashed px-4 py-8 text-center transition-colors ${dragActive ? "border-zinc-500 bg-zinc-800/50" : "border-zinc-700 bg-zinc-900/50"
-            }`}
-          onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={onDrop}
-        >
-          <input
-            type="file"
-            accept="application/pdf"
-            className="hidden"
-            onChange={(e) => {
-              const selected = e.target.files?.[0] || null;
-              if (selected && !selected.name.toLowerCase().endsWith(".pdf")) {
-                setError("Only PDF files are supported.");
-                return;
-              }
-              setError(null);
-              setFile(selected);
-            }}
-          />
-          <div className="text-sm text-zinc-500">
-            {file ? file.name : "Drag and drop PDF here, or click to browse"}
+        {/* Right — tips */}
+        <aside className={styles.right}>
+          <div className={styles.rightLabel}> tips</div>
+          <div className={styles.tips}>
+            <div className={styles.tip}>
+              <span className={styles.tipNum}>01</span>
+              <span className={styles.tipText}>PDF upload works best with papers that have embedded text layers, not scanned images.</span>
+            </div>
+            <div className={styles.tip}>
+              <span className={styles.tipNum}>02</span>
+              <span className={styles.tipText}>Paste an arXiv ID like <code>2310.06825</code> or the full abstract URL.</span>
+            </div>
+            <div className={styles.tip}>
+              <span className={styles.tipNum}>03</span>
+              <span className={styles.tipText}>After analysis, you'll get implementation notes, architecture breakdown, and key claims.</span>
+            </div>
           </div>
-        </label>
-
-        <div className="my-4 text-center text-xs text-zinc-600">or</div>
-
-        <input
-          className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none"
-          value={arxivRef}
-          onChange={(e) => setArxivRef(e.target.value)}
-          placeholder="arxiv.org/abs/... or 2310.06825"
-        />
-
-        {error && <div className="mt-4 rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-400">{error}</div>}
-
-        <button
-          className="mt-6 w-full rounded-lg bg-zinc-800 px-4 py-3 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
-          disabled={!canSubmit || busy}
-          onClick={onAnalyze}
-        >
-          {busy ? "Starting..." : "Analyze"}
-        </button>
-
-        {authChecked && !profile && (
-          <a
-            href="/signin"
-            className="mt-4 flex items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-300 transition-colors hover:bg-zinc-800"
-          >
-            Go to sign in
-          </a>
-        )}
-
-        {authChecked && profile && (
-          <button
-            onClick={async () => {
-              await fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" });
-              setProfile(null);
-            }}
-            className="mt-3 block w-full text-center text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-          >
-            Sign out
-          </button>
-        )}
-      </section>
-    </main>
+        </aside>
+      </div>
+    </div>
   );
 }

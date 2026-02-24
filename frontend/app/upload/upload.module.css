@@ -1,0 +1,342 @@
+﻿/* ── Page shell ── */
+.page {
+    min-height: 100vh;
+    background: #0a0a0a;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Nav ── */
+.nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 48px;
+    border-bottom: 1px solid #1e1e1e;
+}
+
+.logo {
+    font-family: var(--font-serif), serif;
+    font-size: 20px;
+    color: #f0ebe3;
+    letter-spacing: -0.3px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.logoDot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #c2783c;
+}
+
+.navRight {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.userName {
+    font-size: 13px;
+    color: #71717a;
+}
+
+.usageTag {
+    font-family: var(--font-mono), monospace;
+    font-size: 11px;
+    color: #52525b;
+    background: #111;
+    border: 1px solid #1e1e1e;
+    padding: 3px 8px;
+    border-radius: 4px;
+}
+
+.dashboardBtn {
+    font-family: var(--font-mono), monospace;
+    font-size: 11px;
+    color: #a1a1aa;
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    padding: 4px 9px;
+    border-radius: 4px;
+    text-decoration: none;
+    transition: all 0.15s;
+}
+
+.dashboardBtn:hover {
+    color: #f0ebe3;
+    border-color: #3f3f46;
+    background: #1a1a1a;
+}
+
+.signOutBtn {
+    font-family: var(--font-mono), monospace;
+    font-size: 11px;
+    color: #52525b;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: color 0.15s;
+    padding: 0;
+    text-decoration: none;
+}
+
+.signOutBtn:hover {
+    color: #a1a1aa;
+}
+
+/* ── Content wrapper — two-column grid ── */
+.content {
+    flex: 1;
+    width: 100%;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 56px 48px;
+    display: grid;
+    grid-template-columns: 1fr 240px;
+    gap: 64px;
+    align-items: start;
+}
+
+/* ── Left column ── */
+.left {
+    display: flex;
+    flex-direction: column;
+}
+
+.eyebrow {
+    font-family: var(--font-mono), monospace;
+    font-size: 11px;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: #c2783c;
+    margin-bottom: 12px;
+}
+
+.heading {
+    font-family: var(--font-serif), serif;
+    font-size: 34px;
+    color: #f0ebe3;
+    letter-spacing: -0.8px;
+    line-height: 1.1;
+    margin-bottom: 6px;
+}
+
+.sub {
+    font-size: 14px;
+    color: #52525b;
+    line-height: 1.6;
+    margin-bottom: 28px;
+}
+
+/* ── Drop zone ── */
+.dropZone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    border: 1px dashed #2a2a2a;
+    border-radius: 10px;
+    padding: 40px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    background: #0f0f0f;
+    margin-bottom: 14px;
+    box-sizing: border-box;
+}
+
+.dropZone:hover,
+.dropZoneActive {
+    border-color: #c2783c;
+    background: #110e0a;
+}
+
+.dropIcon {
+    color: #3f3f46;
+    display: flex;
+    transition: color 0.15s;
+}
+
+.dropZoneActive .dropIcon {
+    color: #c2783c;
+}
+
+.dropText {
+    font-size: 13px;
+    color: #52525b;
+    line-height: 1.5;
+}
+
+.fileChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #141414;
+    border: 1px solid #27272a;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-family: var(--font-mono), monospace;
+    font-size: 12px;
+    color: #a1a1aa;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.fileChipDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #c2783c;
+    flex-shrink: 0;
+}
+
+/* ── Divider ── */
+.orDivider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.orDivider::before,
+.orDivider::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid #1e1e1e;
+}
+
+.orText {
+    font-family: var(--font-mono), monospace;
+    font-size: 11px;
+    color: #3f3f46;
+    letter-spacing: 1px;
+}
+
+/* ── arXiv input ── */
+.arxivInput {
+    width: 100%;
+    background: #0f0f0f;
+    border: 1px solid #27272a;
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-family: var(--font-mono), monospace;
+    font-size: 13px;
+    color: #d4d4d8;
+    outline: none;
+    transition: border-color 0.15s;
+    margin-bottom: 14px;
+    box-sizing: border-box;
+}
+
+.arxivInput::placeholder {
+    color: #3f3f46;
+}
+
+.arxivInput:focus {
+    border-color: #c2783c;
+}
+
+/* ── Error ── */
+.error {
+    background: #120a0a;
+    border: 1px solid #3d1a1a;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #9e5a5a;
+    margin-bottom: 14px;
+}
+
+/* ── Submit button ── */
+.btnSubmit {
+    width: 100%;
+    padding: 13px 20px;
+    background: #c2783c;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-family: var(--font-sans), sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    letter-spacing: 0.1px;
+    box-sizing: border-box;
+}
+
+.btnSubmit:hover:not(:disabled) {
+    background: #d4894d;
+}
+
+.btnSubmit:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* ── Right column — tips ── */
+.right {
+    padding-top: 56px;
+    /* aligns with heading visually */
+}
+
+.rightLabel {
+    font-family: var(--font-mono), monospace;
+    font-size: 10px;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: #3f3f46;
+    margin-bottom: 20px;
+}
+
+.tips {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.tip {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.tipNum {
+    font-family: var(--font-mono), monospace;
+    font-size: 11px;
+    color: #c2783c;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.tipText {
+    font-size: 13px;
+    color: #52525b;
+    line-height: 1.6;
+}
+
+/* ── Responsive ── */
+@media (max-width: 720px) {
+    .nav {
+        padding: 16px 24px;
+    }
+
+    .content {
+        grid-template-columns: 1fr;
+        gap: 40px;
+        padding: 36px 24px;
+    }
+
+    .right {
+        padding-top: 0;
+        border-top: 1px solid #1e1e1e;
+        padding-top: 28px;
+    }
+}
