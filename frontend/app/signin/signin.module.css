@@ -1,0 +1,143 @@
+﻿.page {
+  min-height: 100vh;
+  background: #0a0a0a;
+  display: flex;
+  flex-direction: column;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 40px;
+  border-bottom: 1px solid #1e1e1e;
+}
+
+.logo {
+  font-family: var(--font-serif), serif;
+  font-size: 20px;
+  color: #f0ebe3;
+  letter-spacing: -0.3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.logoDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #c2783c;
+}
+
+.navBack {
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  color: #52525b;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.navBack:hover {
+  color: #a1a1aa;
+}
+
+.content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 24px;
+}
+
+.card {
+  width: 100%;
+  max-width: 400px;
+}
+
+.heading {
+  font-family: var(--font-serif), serif;
+  font-size: 32px;
+  color: #f0ebe3;
+  letter-spacing: -0.8px;
+  line-height: 1.1;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.btnGoogle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 20px;
+  background: #c2783c;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s;
+  letter-spacing: 0.1px;
+}
+
+.btnGoogle:hover {
+  background: #d4894d;
+}
+
+.btnGithub {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 20px;
+  background: transparent;
+  color: #e4e4e7;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 14px;
+  cursor: pointer;
+  margin-top: 10px;
+  letter-spacing: 0.1px;
+  text-decoration: none;
+  transition: all 0.15s;
+}
+
+.btnGithub:hover {
+  background: #151515;
+  border-color: #3f3f46;
+}
+
+.backLink {
+  display: block;
+  text-align: center;
+  margin-top: 28px;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  color: #52525b;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.backLink:hover {
+  color: #a1a1aa;
+}
+
+.loading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0a0a0a;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  color: #52525b;
+  letter-spacing: 1px;
+}
