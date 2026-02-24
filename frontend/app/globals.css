@@ -24,6 +24,29 @@
   --zinc-800: #27272a;
   --zinc-900: #18181b;
   --zinc-950: #09090b;
+
+  /* Accents — copper family */
+  --accent: #c2783c;
+  /* copper — CTAs, active states, primary highlight */
+  --accent-hover: #d4894d;
+  /* lighter copper on hover */
+  --accent-dim: #1e1410;
+  /* copper tint for card backgrounds */
+  --accent-border: #3d2a1a;
+  /* copper tint for card borders */
+
+  /* Functional status colors — desaturated, not neon */
+  --status-green: #5a9e6e;
+  /* confirmed / paper-stated */
+  --status-yellow: #a08c3a;
+  /* inferred / uncertain */
+  --status-red: #9e5a5a;
+  /* missing / assumed / error */
+
+  /* Remaps for hero page variables */
+  --text: var(--text-primary);
+  --muted: var(--text-body);
+  --sketch: var(--zinc-400);
 }
 
 html,
