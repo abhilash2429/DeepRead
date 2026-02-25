@@ -29,6 +29,8 @@ frontend/tsconfig.tsbuildinfo
 *.sqlite3
 prisma/dev.db
 prisma/dev.db-journal
+prisma_client/
+.prisma-python-cache/
 .npm-cache/
 frontend/.npm-cache/
 frontend/Microsoft/

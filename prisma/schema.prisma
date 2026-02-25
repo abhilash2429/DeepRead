@@ -1,7 +1,7 @@
 generator client {
   provider             = "prisma-client-py"
   interface            = "asyncio"
-  output               = "../.venv/Lib/site-packages/prisma"
+  output               = "../prisma_client"
   recursive_type_depth = 5
 }
 
