@@ -44,6 +44,7 @@ _load_local_env()
 APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
 JWT_SECRET_VALUE = os.getenv("JWT_SECRET", "").strip()
 SESSION_SECRET_VALUE = os.getenv("SESSION_SECRET", "").strip()
+BACKEND_PORT = os.getenv("PORT", "8000").strip() or "8000"
 
 
 def _is_local_hostname(hostname: str | None) -> bool:
@@ -268,9 +269,9 @@ app.include_router(conversation_router)
 
 @app.get("/")
 async def root() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "port": BACKEND_PORT}
 
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "port": BACKEND_PORT}
