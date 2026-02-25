@@ -5,17 +5,18 @@ import ExampleWalkthroughDocument from "@/components/ExampleWalkthroughDocument"
 import { EXAMPLE_LIST, EXAMPLE_WALKTHROUGHS, ExampleSlug } from "@/lib/examples";
 
 type ExamplePageProps = {
-  params: {
-    slug: string;
-  };
+  params: Promise<{ slug: string }> | { slug: string };
 };
 
 export function generateStaticParams(): Array<{ slug: string }> {
   return EXAMPLE_LIST.map((example) => ({ slug: example.slug }));
 }
 
-export default function ExampleWalkthroughPage({ params }: ExamplePageProps) {
-  const slug = params.slug as ExampleSlug;
+export const dynamicParams = false;
+
+export default async function ExampleWalkthroughPage({ params }: ExamplePageProps) {
+  const resolvedParams = await params;
+  const slug = resolvedParams.slug as ExampleSlug;
   const walkthrough = EXAMPLE_WALKTHROUGHS[slug];
   if (!walkthrough) notFound();
 
