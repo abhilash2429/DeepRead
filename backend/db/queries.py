@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from prisma import Json
 from pydantic import BaseModel
 
 from backend.db.prisma import prisma
+
+try:
+    from prisma import Json  # type: ignore[attr-defined]
+except Exception:  # pragma: no cover
+    try:
+        from prisma_client import Json  # type: ignore[attr-defined]
+    except Exception:  # pragma: no cover
+        def Json(value: Any) -> Any:  # type: ignore[misc]
+            return value
 
 
 FREE_PLAN_LIMIT = 3
