@@ -43,3 +43,4 @@ Thumbs.db
 
 # Local git config used by sandbox
 .gitconfig-local
+prisma

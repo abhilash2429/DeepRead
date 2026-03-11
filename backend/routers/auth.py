@@ -114,6 +114,11 @@ async def auth_google(request: Request):
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
+@router.get("/signup/google")
+async def auth_google_signup(request: Request):
+    return await auth_google(request)
+
+
 @router.get("/google/callback")
 async def auth_google_callback(request: Request):
     frontend_base = os.getenv("NEXTAUTH_URL", "http://localhost:3000")
@@ -131,7 +136,7 @@ async def auth_google_callback(request: Request):
         user_info = response.json()
 
     google_sub = str(user_info.get("sub", "")).strip()
-    email = str(user_info.get("email", "")).strip()
+    email = str(user_info.get("email", "")).strip().lower()
     name = str(user_info.get("name", "")).strip() or email
     avatar_url = user_info.get("picture")
 
@@ -160,6 +165,11 @@ async def auth_github(request: Request):
         raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
     redirect_uri = os.getenv("GITHUB_REDIRECT_URI") or str(request.url_for("auth_github_callback"))
     return await oauth.github.authorize_redirect(request, redirect_uri)
+
+
+@router.get("/signup/github")
+async def auth_github_signup(request: Request):
+    return await auth_github(request)
 
 
 @router.get("/github/callback")

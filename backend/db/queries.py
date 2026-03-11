@@ -30,6 +30,27 @@ def _to_json(value: Any) -> Any:
 
 
 async def get_or_create_user(google_sub: str, email: str, name: str, avatar_url: str | None) -> Any:
+    existing_by_sub = await prisma.user.find_unique(where={"google_sub": google_sub})
+    if existing_by_sub:
+        return await prisma.user.update(
+            where={"id": existing_by_sub.id},
+            data={
+                "email": email,
+                "name": name,
+                "avatar_url": avatar_url,
+            },
+        )
+
+    existing_by_email = await prisma.user.find_unique(where={"email": email})
+    if existing_by_email:
+        return await prisma.user.update(
+            where={"id": existing_by_email.id},
+            data={
+                "name": name,
+                "avatar_url": avatar_url,
+            },
+        )
+
     return await prisma.user.upsert(
         where={"google_sub": google_sub},
         data={
